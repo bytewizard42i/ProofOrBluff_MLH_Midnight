@@ -1,5 +1,7 @@
 > 📍 **MIRROR**. Canonical lives at `@/home/js/DIDzMonolith/monolith-docs/midnight/archive/2026-05-13_local-dev-and-1am.md`.
 > Last sync: 2026-05-14. Update the canonical first, then re-mirror.
+>
+> Retained in this repo because POB is the **active MLH × Midnight hackathon submission** and this doc covers the local-dev tooling, pinned SDK matrix, and ecosystem context we'll cite during judging. See [MLH_MIDNIGHT_HACKATHON_2026.md](./MLH_MIDNIGHT_HACKATHON_2026.md).
 
 ---
 

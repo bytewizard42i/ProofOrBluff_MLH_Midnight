@@ -1,0 +1,13 @@
+# Netlify build config for Proof or Bluff (MLH × Midnight demoLand)
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# SPA fallback (the app is single-page; no client-side router yet but ready)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

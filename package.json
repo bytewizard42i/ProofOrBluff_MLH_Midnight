@@ -1,0 +1,21 @@
+{
+  "name": "proof-or-bluff",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Proof or Bluff (POB) — a Midnight-native privacy-preserving bluffing card game. MLH x Midnight Hackathon May 15-17 2026.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 3015",
+    "start": "vite --port 3015"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.10"
+  }
+}

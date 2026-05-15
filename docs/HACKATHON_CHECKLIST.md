@@ -1,75 +1,113 @@
-# Gimbalabs Piece-of-Pie Hackathon — Weekly Checklist
+# MLH × Midnight Hackathon — POB Submission Checklist
 
-> Source: [builder-pie-rules.md](https://github.com/gimbalabs/Piece-of-Pie-Hackathon/blob/main/docs/rules/builder-pie-rules.md)
+> **Event**: MLH × Midnight Hackathon, May 15-17 2026 (Fri-Sun, 48h virtual)
+> **Project**: Proof or Bluff (POB)
+> **Track**: Gaming
+> **Submission deadline**: Sunday May 17, 2026 (end of day)
+> **Full event details**: [MLH_MIDNIGHT_HACKATHON_2026.md](./MLH_MIDNIGHT_HACKATHON_2026.md)
+>
+> Maintained by Penny 🎀. Update as items complete.
 
 ---
 
-## Weekly Tweet Requirement (Rule 7)
+## Track Requirements (Gaming)
 
-**At least one qualifying public tweet every week. Missing a week = disqualification.**
+**Prompt** (verbatim from MLH): *Engaging games where players enjoy verifiable outcomes and true ownership without exposing hidden in-game states or underlying competitive strategies. Web3 gaming where fair play is guaranteed by cryptography and player data is strictly confidential.*
 
-Every required tweet **must** include ALL of:
-
-| Requirement | Example |
+| Requirement | POB answer |
 |---|---|
-| Clearly show project progress | Screenshot, demo clip, code snippet, milestone |
-| `#gimbalabs` | |
-| `#pieceofpie` | |
-| `#hackathon` | |
-| Mention `@gimbalabs` | |
-
-### Copy-Paste Tweet Template
-
-```
-🎲 [WEEK X] BlindOracle progress update!
-
-[1–2 sentences describing what you built/shipped this week]
-
-[screenshot or demo link]
-
-@gimbalabs #gimbalabs #pieceofpie #hackathon
-```
+| Engaging game | Bluffing card game with Ai personality, surprise mechanics |
+| Verifiable outcomes | Challenge resolution via direct reveal (demoLand) / ZK proof (realDeal stub) |
+| Hidden in-game state | Player and Ai hands are private; only claims are public |
+| Cryptographic fair play | Compact contract stub `proof-or-bluff.compact` shows the realDeal path |
+| Confidential player data | No accounts in demoLand; realDeal would use Midnight private state |
 
 ---
 
-## Weekly Tweet Log
+## 48-Hour Build Checklist
 
-Track each week's tweet here so you have the links ready for your final presentation.
+### Friday May 15 (kickoff, evening)
 
-| Week | Date Posted | Tweet Link | Summary |
-|------|------------|------------|---------|
-| 1 | | | |
-| 2 | | | |
-| 3 | | | |
-| 4 | | | |
-| 5 | | | |
-| 6 | | | |
-| 7 | | | |
-| 8 | | | |
+- [x] Lock project + track decision (POB / Gaming)
+- [x] Import MLH hackathon doc into POB repo
+- [ ] Scaffold Vite + React shell at repo root
+- [ ] Wire game engine (`demoLand/src/game/`) to React UI
+- [ ] Minimal but readable card-table layout
+- [ ] Scripted Ai integrated, basic turn loop playable end-to-end
+- [ ] First commit + push to public main
 
----
+### Saturday May 16
 
-## Other Builder Pie Requirements (Quick Reference)
+- [ ] Win/lose screen, scoring display, rematch button
+- [ ] Game log / event feed visible during play
+- [ ] Difficulty selector (easy / medium / hard) wired through to scripted Ai
+- [ ] Mode selector (Casual / Standard) wired through
+- [ ] Mobile-responsive layout (at least readable on phone width)
+- [ ] Deploy demoLand to Netlify, capture public URL
+- [ ] **Sat evening**: post Gimbalabs Builder Week 3 weekly tweet (24h buffer before Sun May 17 12:00 UTC deadline — see Concurrent Commitments below)
 
-1. **User-facing software product** with a clear payment gate (subscription, one-time, usage-based)
-2. **Solo or team** — every contributor must be registered by name
-3. **One person, one project** — no multi-project participation
-4. **One official public repo** — must stay public until final payouts
-5. **Start with empty repo** — no pre-existing code at hackathon start
-6. **Product must be publicly accessible** by end (live web app, downloadable app, extension, etc.) — local-only does NOT qualify
-7. **Weekly tweets** (see above)
-8. **Final presentation** must include:
-   - Live demo
-   - Official repo link
-   - Links to ALL weekly tweets
-   - Deployed public product link
+### Sunday May 17 (submission day)
 
-## Disqualification Triggers
-
-- Missing a required weekly tweet
-- Joining more than one project
-- Failing to provide verifiable public evidence
+- [ ] Record 2-3 minute demo video (full bluff round, challenge moment, win screen)
+- [ ] README cleanup: hackathon banner, demo URL, video link at top
+- [ ] Test the public URL on a fresh device / private browser
+- [ ] Submit MLH project page with:
+  - [ ] Public GitHub repo link
+  - [ ] Deployed demo URL
+  - [ ] Demo video
+  - [ ] Track: Gaming
+  - [ ] Team / solo declaration
+- [ ] **Sun by 12:00 UTC**: confirm Gimbalabs weekly tweet was posted Sat
+- [ ] Post a kickoff/submission tweet tagging `@MLHacks` `@MidnightNtwrk` `#MLHxMidnight`
 
 ---
 
-*Keep this file updated each week. Your future self (and your final presentation) will thank you.*
+## Concurrent Commitments During the 48-Hour Window
+
+This is **critical to track**:
+
+| Window | Commitment | Action |
+|---|---|---|
+| Sun May 17 **12:00 UTC** | Gimbalabs Builder Week 3 weekly tweet deadline (BlindOracle, Piece-of-Pie) | Draft Fri, post **Sat evening** for 24h buffer |
+| Mon May 18 09:00 PDT | Splunk Agentic Ops 2026 submissions open (ZKSplunk) | Pre-stage; act after MLH submission |
+
+> Missing the Gimbalabs tweet = Piece-of-Pie disqualification. **Sat evening post, no exceptions.**
+
+---
+
+## Deliverables (Final Presentation / Judging)
+
+| Item | Where | Status |
+|---|---|---|
+| Public GitHub repo | https://github.com/bytewizard42i/ProofOrBluff_MLH_Midnight | ✅ |
+| Deployed public URL | Netlify (TBD) | ⏳ |
+| Demo video (2-3 min) | YouTube / Loom (TBD) | ⏳ |
+| README with hackathon banner | `README.md` top | ⏳ |
+| Track-fit narrative | `docs/MLH_MIDNIGHT_HACKATHON_2026.md` Final Decision section | ✅ |
+| Architecture overview | `docs/DEMOLAND_VS_REALDEAL.md` | ✅ |
+| Game rules | `docs/RULES.md` | ✅ |
+| Compact contract (stub OK) | `realDeal/contracts/proof-or-bluff.compact` | ✅ stub |
+
+---
+
+## Disqualification Risks
+
+| Risk | Mitigation |
+|---|---|
+| Repo not public at judge time | Repo is already public; verify settings before submission |
+| No deployed URL (local-only doesn't qualify for MLH) | Netlify deploy Saturday |
+| Late submission | Submit by Sun evening with buffer for upload retries |
+| Gimbalabs tweet missed during MLH window | Pre-draft Fri, post Sat evening |
+
+---
+
+## Useful Links
+
+- MLH event Discord: `#mlh-hackers` in Midnight Discord
+- MLH coordinator: Amanda D'Avria
+- Midnight Academy: https://docs.midnight.network
+- Midnight local-dev tool: https://github.com/midnightntwrk/midnight-local-dev (see [MIDNIGHT_LOCAL_DEV_AND_ECOSYSTEM_2026-05-13.md](./MIDNIGHT_LOCAL_DEV_AND_ECOSYSTEM_2026-05-13.md))
+
+---
+
+*Maintained by Penny 🎀. Replaces the prior Gimbalabs/Piece-of-Pie checklist that was misfiled here (the canonical version of that lives in `BlindOracle-Gimbalabs_hackathon/docs/HACKATHON_CHECKLIST.md`).*
