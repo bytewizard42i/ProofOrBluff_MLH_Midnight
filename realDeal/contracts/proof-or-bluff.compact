@@ -1,0 +1,901 @@
+// ============================================================================
+// Proof or Bluff — proof-or-bluff.compact
+// ============================================================================
+//
+// Two-player bluffing card game on Midnight. Based on the classic "Cheat"/
+// "Bullshit" mechanic: each turn the active player plays 1-4 cards face-down
+// and declares what they played. The opponent accepts or calls "Proof or
+// Bluff!" — a challenge resolved by a zero-knowledge proof that reveals
+// ONLY the truth of the claim, never the underlying cards.
+//
+// MODES SUPPORTED (per docs/RULES.md)
+//   - CASUAL    (0): 5-card hands, play 1-2, first to 10 pts
+//   - STANDARD  (1): 7-card hands, play 1-3, first to 15 pts  ← default
+//   - STRATEGIC (2): 7-card hands, no refill, empty hand wins
+//   - CLASSIC   (3): 26-card split, empty hand wins
+//   - CASINO    (4): 7-card hands from 5-deck shoe, first to 20 pts
+//
+// PRIVACY MODEL
+//   PUBLIC   : match id, current rank, turn, phase, claims (rank+count),
+//              pile size, scores, hand sizes, winner
+//   PRIVATE  : each player's actual cards (off-chain private state)
+//   ZK PROOF : on challenge, the challenged player proves — via the
+//              `revealLastPlay` witness — whether their committed cards
+//              matched the declared rank. The BOOLEAN result is disclosed;
+//              the actual card ranks stay secret in both outcomes.
+//
+// STATE MACHINE
+//   WAITING_FOR_PLAYER_TWO (0)
+//     └── createMatch
+//         └── [caller is solo; waits for joinMatch]
+//   WAITING_FOR_ENTROPY_REVEAL (1)
+//     └── joinMatch
+//         └── [both entropy commits on-chain; off-chain reveal happens]
+//   PLAYING (2)
+//     └── revealSeed  (once)    → sets combinedSeed + startingRank
+//         └── playCards         → moves to AWAITING_RESPONSE
+//   AWAITING_RESPONSE (3)
+//     ├── acceptClaim           → back to PLAYING (passive player's turn)
+//     └── challengeClaim        → challenged player must resolve
+//         ├── resolveChallenge  → updates scores/pile, back to PLAYING,
+//         │                       OR moves to GAMEOVER if threshold hit
+//         └── forfeitStalledChallenge  (timeout) → same terminal logic
+//   GAMEOVER (4)
+//     └── claimPayout           → winner latches the escrow flag
+//
+// SCORING (realDeal — ZK-enforceable)
+//   Scoring events that require NO ground truth (no challenge fired):
+//     - accept/truthful play: 0 change  (both modes)
+//     - accept/bluff:         0 change  (we can't verify without proof)
+//   Scoring events awarded on challenge resolution:
+//     - claim was TRUE  → challenger -1 (failed challenge penalty)
+//     - claim was FALSE → challenger +3 (successful challenge)
+//   (The demoLand-only +1 "successful bluff" bonus requires ground truth
+//    and is not modeled here. Standard mode's first-to-15 still works
+//    because score swings on challenges dominate.)
+//
+// WAGER / ESCROW
+//   MVP records the notional `wagerAmount` and a one-shot `escrowReleased`
+//   latch after GAMEOVER. Actual fund movement is handled off-chain via the
+//   SDK. A future contract revision will wire Zswap native-token escrow.
+//
+// INTEGRATION WITH DIDzMonolith
+//   - Players are identified by their Midnight wallet key. The optional
+//     `did:midnight:...` binding happens off-chain via the DIDz SDK.
+//   - Match wins are reported to the companion `player-stats.compact`
+//     contract for ELO tracking, achievements, and tournament eligibility.
+//   - KYCz integration (Casino Mode age/jurisdiction gating) is an
+//     off-chain check before calling `joinMatch`.
+//
+// COMPILER
+//   - compactc v0.30.0, language pragma >= 0.16 && <= 0.21
+//   - Validated on the hosted Compact playground (skipZk mode).
+// ============================================================================
+
+pragma language_version >= 0.16 && <= 0.21;
+
+import CompactStandardLibrary;
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+export enum GameMode { CASUAL, STANDARD, STRATEGIC, CLASSIC, CASINO }
+
+export enum MatchPhase {
+  WAITING_FOR_PLAYER_TWO,       // 0 — only the creator has joined
+  WAITING_FOR_ENTROPY_REVEAL,   // 1 — both entropy commits on-chain
+  PLAYING,                       // 2 — active player may call playCards
+  AWAITING_RESPONSE,             // 3 — claim posted; other player must
+                                 //     accept or challenge
+  GAMEOVER                       // 4 — winner determined
+}
+
+// ============================================================================
+// DATA STRUCTURES
+// ============================================================================
+
+// Full match state, stored in `matches: Map<Bytes<32>, MatchState>`.
+// All fields are public (the Midnight indexer can observe them). Private
+// card data never lives here — only commitments and claim rank/count.
+struct MatchState {
+  // Identity / config (immutable after creation) ----------------------------
+  playerOne: ZswapCoinPublicKey;
+  playerTwo: ZswapCoinPublicKey;
+  mode: Uint<8>;                   // GameMode
+  winThreshold: Uint<8>;           // 10, 15, or 20 (or 0 for empty-hand modes)
+  wagerAmount: Uint<64>;           // notional wager; off-chain settlement
+  createdAt: Uint<64>;
+
+  // Commit-reveal for the shuffle seed --------------------------------------
+  p1EntropyCommit: Bytes<32>;
+  p2EntropyCommit: Bytes<32>;
+  combinedSeed: Bytes<32>;
+  seedFinalized: Boolean;
+
+  // State machine ----------------------------------------------------------
+  phase: Uint<8>;                  // MatchPhase
+  activePlayerIdx: Uint<8>;        // 0 = p1, 1 = p2 — who acts next
+  currentRank: Uint<8>;            // 0..12 → "2".."A"
+
+  // Pending play (awaiting accept or challenge) ----------------------------
+  lastClaimRank: Uint<8>;
+  lastClaimCount: Uint<8>;
+  lastPlayCommit: Bytes<32>;       // hash of the cards played + salts
+  lastPlayerIdx: Uint<8>;          // who made the claim
+  hasPendingPlay: Boolean;
+  challengeCalledAt: Uint<64>;     // timestamp of challenge (for timeout)
+  isChallenged: Boolean;
+
+  // Running totals ---------------------------------------------------------
+  pileSize: Uint<32>;
+  p1Score: Uint<32>;
+  p2Score: Uint<32>;
+  p1HandSize: Uint<32>;
+  p2HandSize: Uint<32>;
+
+  // Terminal state ---------------------------------------------------------
+  winner: Uint<8>;                 // 0 = none, 1 = p1, 2 = p2
+  escrowReleased: Boolean;
+}
+
+// Hash input for deterministic match-id derivation
+struct MatchIdInput {
+  separator: Bytes<32>;
+  playerOne: ZswapCoinPublicKey;
+  mode: Uint<8>;
+  createdAt: Uint<64>;
+}
+
+// Hash input for seed combination (p1Entropy || p2Entropy)
+struct SeedInput {
+  separator: Bytes<32>;
+  p1Entropy: Bytes<32>;
+  p2Entropy: Bytes<32>;
+}
+
+// Hash input for entropy commit-reveal verification
+struct EntropyCommitInput {
+  separator: Bytes<32>;
+  entropy: Bytes<32>;
+}
+
+// Private witness used during challenge resolution. The player being
+// challenged reveals this (only to the circuit — never on-chain) so the
+// contract can recompute the commit, compare it to `lastPlayCommit`, and
+// count how many of the revealed ranks match the declared rank. The
+// contract discloses ONLY the boolean outcome.
+struct PlayRevealWitness {
+  count: Uint<8>;
+  rank0: Uint<8>;
+  salt0: Bytes<32>;
+  rank1: Uint<8>;
+  salt1: Bytes<32>;
+  rank2: Uint<8>;
+  salt2: Bytes<32>;
+  rank3: Uint<8>;
+  salt3: Bytes<32>;
+}
+
+witness revealLastPlay(): PlayRevealWitness;
+
+// ============================================================================
+// LEDGER STATE
+// ============================================================================
+
+export ledger matches: Map<Bytes<32>, MatchState>;
+export ledger totalMatchesCreated: Counter;
+export ledger totalMatchesCompleted: Counter;
+export ledger totalChallengesIssued: Counter;
+
+sealed ledger deployerKey: ZswapCoinPublicKey;
+
+constructor() { deployerKey = ownPublicKey(); }
+
+// ============================================================================
+// INTERNAL HELPERS
+// ============================================================================
+
+circuit computeMatchId(
+  playerOne: ZswapCoinPublicKey,
+  mode: Uint<8>,
+  createdAt: Uint<64>
+): Bytes<32> {
+  return persistentHash<MatchIdInput>(MatchIdInput {
+    separator: pad(32, "pob:match:v1"),
+    playerOne: playerOne,
+    mode: mode,
+    createdAt: createdAt
+  });
+}
+
+// Verify that a revealed entropy opens its prior commitment.
+circuit verifyEntropyAgainstCommit(
+  entropy: Bytes<32>,
+  commit: Bytes<32>
+): Boolean {
+  const computed = persistentHash<EntropyCommitInput>(EntropyCommitInput {
+    separator: pad(32, "pob:entropy:v1"),
+    entropy: entropy
+  });
+  return computed == commit;
+}
+
+// Hand-size configuration per mode (RULES.md).
+circuit initialHandSizeForMode(mode: Uint<8>): Uint<32> {
+  if (mode == (0 as Uint<8>)) { return 5; }   // CASUAL
+  if (mode == (3 as Uint<8>)) { return 26; }  // CLASSIC (split deck)
+  return 7;                                    // STANDARD/STRATEGIC/CASINO
+}
+
+// Point threshold per mode. 0 ⇒ empty-hand mode (STRATEGIC/CLASSIC).
+circuit winThresholdForMode(mode: Uint<8>): Uint<8> {
+  if (mode == (0 as Uint<8>)) { return 10; }
+  if (mode == (1 as Uint<8>)) { return 15; }
+  if (mode == (4 as Uint<8>)) { return 20; }
+  return 0;
+}
+
+circuit isEmptyHandMode(mode: Uint<8>): Boolean {
+  return (mode == (2 as Uint<8>)) || (mode == (3 as Uint<8>));
+}
+
+// Advance rank 2→3→…→A→2 (wrap-around).
+circuit nextRank(r: Uint<8>): Uint<8> {
+  if (r >= (12 as Uint<8>)) { return 0; }
+  return (r + 1) as Uint<8>;
+}
+
+// Clamped subtraction to avoid Uint underflow.
+circuit subWithFloor32(a: Uint<32>, b: Uint<32>): Uint<32> {
+  if (a <= b) { return 0; }
+  return (a - b) as Uint<32>;
+}
+
+// Count how many of the revealed card ranks equal `target`, respecting the
+// claimed count (unused slots contribute 0).
+circuit countMatchingRanks(reveal: PlayRevealWitness, target: Uint<8>): Uint<8> {
+  const m0: Uint<8> = ((reveal.count >= (1 as Uint<8>)) && (reveal.rank0 == target)) ? 1 : 0;
+  const m1: Uint<8> = ((reveal.count >= (2 as Uint<8>)) && (reveal.rank1 == target)) ? 1 : 0;
+  const m2: Uint<8> = ((reveal.count >= (3 as Uint<8>)) && (reveal.rank2 == target)) ? 1 : 0;
+  const m3: Uint<8> = ((reveal.count >= (4 as Uint<8>)) && (reveal.rank3 == target)) ? 1 : 0;
+  return (m0 + m1 + m2 + m3) as Uint<8>;
+}
+
+// ============================================================================
+// MATCH LIFECYCLE
+// ============================================================================
+
+// Player One creates a new match. They commit to their shuffle entropy
+// now; the actual random value is revealed later via `revealSeed` once
+// Player Two has also committed.
+export circuit createMatch(
+  mode: Uint<8>,
+  wagerAmount: Uint<64>,
+  p1EntropyCommit: Bytes<32>,
+  currentTime: Uint<64>
+): Bytes<32> {
+  const caller = ownPublicKey();
+  const matchId = computeMatchId(caller, mode, currentTime);
+  assert(!matches.member(disclose(matchId)), "Match already exists");
+
+  const handSize = initialHandSizeForMode(mode);
+  const threshold = winThresholdForMode(mode);
+
+  const state = MatchState {
+    playerOne: caller,
+    playerTwo: caller,           // placeholder until joinMatch
+    mode: mode,
+    winThreshold: threshold,
+    wagerAmount: wagerAmount,
+    createdAt: currentTime,
+
+    p1EntropyCommit: p1EntropyCommit,
+    p2EntropyCommit: pad(32, ""),
+    combinedSeed: pad(32, ""),
+    seedFinalized: false,
+
+    phase: 0,
+    activePlayerIdx: 0,
+    currentRank: 0,
+
+    lastClaimRank: 0,
+    lastClaimCount: 0,
+    lastPlayCommit: pad(32, ""),
+    lastPlayerIdx: 0,
+    hasPendingPlay: false,
+    challengeCalledAt: 0,
+    isChallenged: false,
+
+    pileSize: 0,
+    p1Score: 0,
+    p2Score: 0,
+    p1HandSize: handSize,
+    p2HandSize: handSize,
+
+    winner: 0,
+    escrowReleased: false
+  };
+
+  matches.insert(disclose(matchId), disclose(state));
+  totalMatchesCreated.increment(1);
+  return disclose(matchId);
+}
+
+// Player Two joins and commits their own entropy. This moves the match to
+// WAITING_FOR_ENTROPY_REVEAL.
+export circuit joinMatch(
+  matchId: Bytes<32>,
+  p2EntropyCommit: Bytes<32>
+): [] {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  const m = matches.lookup(disclose(matchId));
+  assert(disclose(m.phase) == (0 as Uint<8>), "Match not open for joining");
+  const joiner = ownPublicKey();
+  assert(joiner != m.playerOne, "Creator cannot join as player two");
+
+  const updated = MatchState {
+    playerOne: m.playerOne,
+    playerTwo: joiner,
+    mode: m.mode,
+    winThreshold: m.winThreshold,
+    wagerAmount: m.wagerAmount,
+    createdAt: m.createdAt,
+
+    p1EntropyCommit: m.p1EntropyCommit,
+    p2EntropyCommit: p2EntropyCommit,
+    combinedSeed: m.combinedSeed,
+    seedFinalized: m.seedFinalized,
+
+    phase: 1,
+    activePlayerIdx: 0,
+    currentRank: m.currentRank,
+
+    lastClaimRank: m.lastClaimRank,
+    lastClaimCount: m.lastClaimCount,
+    lastPlayCommit: m.lastPlayCommit,
+    lastPlayerIdx: m.lastPlayerIdx,
+    hasPendingPlay: m.hasPendingPlay,
+    challengeCalledAt: m.challengeCalledAt,
+    isChallenged: m.isChallenged,
+
+    pileSize: m.pileSize,
+    p1Score: m.p1Score,
+    p2Score: m.p2Score,
+    p1HandSize: m.p1HandSize,
+    p2HandSize: m.p2HandSize,
+
+    winner: m.winner,
+    escrowReleased: m.escrowReleased
+  };
+  matches.insert(disclose(matchId), disclose(updated));
+}
+
+// Both players reveal their entropy off-chain and pass it here. The
+// contract verifies each entropy against its commitment, then combines
+// them into the final shuffle seed. The client deals hands deterministically
+// from this seed off-chain; hand sizes are already correct from setup.
+export circuit revealSeed(
+  matchId: Bytes<32>,
+  p1Entropy: Bytes<32>,
+  p2Entropy: Bytes<32>,
+  startingRank: Uint<8>
+): [] {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  const m = matches.lookup(disclose(matchId));
+  assert(disclose(m.phase) == (1 as Uint<8>), "Match not awaiting seed reveal");
+  assert(disclose(startingRank) <= (12 as Uint<8>), "Starting rank out of range");
+
+  assert(verifyEntropyAgainstCommit(p1Entropy, m.p1EntropyCommit),
+    "p1 entropy does not match its commitment");
+  assert(verifyEntropyAgainstCommit(p2Entropy, m.p2EntropyCommit),
+    "p2 entropy does not match its commitment");
+
+  const combined = persistentHash<SeedInput>(SeedInput {
+    separator: pad(32, "pob:seed:v1"),
+    p1Entropy: p1Entropy,
+    p2Entropy: p2Entropy
+  });
+
+  const updated = MatchState {
+    playerOne: m.playerOne,
+    playerTwo: m.playerTwo,
+    mode: m.mode,
+    winThreshold: m.winThreshold,
+    wagerAmount: m.wagerAmount,
+    createdAt: m.createdAt,
+
+    p1EntropyCommit: m.p1EntropyCommit,
+    p2EntropyCommit: m.p2EntropyCommit,
+    combinedSeed: combined,
+    seedFinalized: true,
+
+    phase: 2,
+    activePlayerIdx: 0,
+    currentRank: startingRank,
+
+    lastClaimRank: m.lastClaimRank,
+    lastClaimCount: m.lastClaimCount,
+    lastPlayCommit: m.lastPlayCommit,
+    lastPlayerIdx: m.lastPlayerIdx,
+    hasPendingPlay: m.hasPendingPlay,
+    challengeCalledAt: m.challengeCalledAt,
+    isChallenged: m.isChallenged,
+
+    pileSize: m.pileSize,
+    p1Score: m.p1Score,
+    p2Score: m.p2Score,
+    p1HandSize: m.p1HandSize,
+    p2HandSize: m.p2HandSize,
+
+    winner: m.winner,
+    escrowReleased: m.escrowReleased
+  };
+  matches.insert(disclose(matchId), disclose(updated));
+}
+
+// ============================================================================
+// GAMEPLAY CIRCUITS
+// ============================================================================
+
+// The active player plays 1-4 cards face-down and declares the claim.
+// `playCommit` is `persistentHash(PlayRevealWitness{count, rank0, salt0, ...})`.
+// Hand size shrinks by `claimedCount` (honor system at this MVP layer;
+// future work: Merkle hand-membership proof).
+export circuit playCards(
+  matchId: Bytes<32>,
+  playCommit: Bytes<32>,
+  claimedRank: Uint<8>,
+  claimedCount: Uint<8>
+): [] {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  const m = matches.lookup(disclose(matchId));
+  assert(disclose(m.phase) == (2 as Uint<8>), "Match not in PLAYING phase");
+
+  const caller = ownPublicKey();
+  assert((caller == m.playerOne) || (caller == m.playerTwo), "Not a player");
+  const callerIdx: Uint<8> = (caller == m.playerOne) ? 0 : 1;
+  assert(disclose(callerIdx) == disclose(m.activePlayerIdx), "Not your turn");
+
+  assert(disclose(claimedRank) == disclose(m.currentRank),
+    "Claimed rank must equal required rank for this turn");
+  assert(disclose(claimedCount) >= (1 as Uint<8>) && disclose(claimedCount) <= (4 as Uint<8>),
+    "Must play 1-4 cards");
+
+  const callerHandSize: Uint<32> = (callerIdx == (0 as Uint<8>)) ? m.p1HandSize : m.p2HandSize;
+  assert(disclose(callerHandSize) >= (disclose(claimedCount) as Uint<32>),
+    "Not enough cards in hand to play claimed count");
+
+  const newP1Hand: Uint<32> = (callerIdx == (0 as Uint<8>))
+    ? subWithFloor32(m.p1HandSize, claimedCount as Uint<32>)
+    : m.p1HandSize;
+  const newP2Hand: Uint<32> = (callerIdx == (1 as Uint<8>))
+    ? subWithFloor32(m.p2HandSize, claimedCount as Uint<32>)
+    : m.p2HandSize;
+
+  const nextIdx: Uint<8> = (callerIdx == (0 as Uint<8>)) ? 1 : 0;
+
+  const updated = MatchState {
+    playerOne: m.playerOne,
+    playerTwo: m.playerTwo,
+    mode: m.mode,
+    winThreshold: m.winThreshold,
+    wagerAmount: m.wagerAmount,
+    createdAt: m.createdAt,
+
+    p1EntropyCommit: m.p1EntropyCommit,
+    p2EntropyCommit: m.p2EntropyCommit,
+    combinedSeed: m.combinedSeed,
+    seedFinalized: m.seedFinalized,
+
+    phase: 3,
+    activePlayerIdx: nextIdx,
+    currentRank: m.currentRank,
+
+    lastClaimRank: claimedRank,
+    lastClaimCount: claimedCount,
+    lastPlayCommit: playCommit,
+    lastPlayerIdx: callerIdx,
+    hasPendingPlay: true,
+    challengeCalledAt: 0,
+    isChallenged: false,
+
+    pileSize: m.pileSize,
+    p1Score: m.p1Score,
+    p2Score: m.p2Score,
+    p1HandSize: newP1Hand,
+    p2HandSize: newP2Hand,
+
+    winner: m.winner,
+    escrowReleased: m.escrowReleased
+  };
+  matches.insert(disclose(matchId), disclose(updated));
+}
+
+// Passive player accepts the claim: the committed cards now belong to
+// the central pile, the required rank advances, and it's the acceptor's
+// turn to play next.
+export circuit acceptClaim(matchId: Bytes<32>): [] {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  const m = matches.lookup(disclose(matchId));
+  assert(disclose(m.phase) == (3 as Uint<8>), "No pending play to accept");
+  assert(m.hasPendingPlay, "No pending play");
+  assert(!m.isChallenged, "Play was already challenged");
+
+  const caller = ownPublicKey();
+  assert((caller == m.playerOne) || (caller == m.playerTwo), "Not a player");
+  const callerIdx: Uint<8> = (caller == m.playerOne) ? 0 : 1;
+  assert(disclose(callerIdx) != disclose(m.lastPlayerIdx),
+    "Only the passive player can accept");
+
+  const newPileSize = (m.pileSize + (m.lastClaimCount as Uint<32>)) as Uint<32>;
+  const advancedRank = nextRank(m.currentRank);
+
+  const updated = MatchState {
+    playerOne: m.playerOne,
+    playerTwo: m.playerTwo,
+    mode: m.mode,
+    winThreshold: m.winThreshold,
+    wagerAmount: m.wagerAmount,
+    createdAt: m.createdAt,
+
+    p1EntropyCommit: m.p1EntropyCommit,
+    p2EntropyCommit: m.p2EntropyCommit,
+    combinedSeed: m.combinedSeed,
+    seedFinalized: m.seedFinalized,
+
+    phase: 2,
+    activePlayerIdx: callerIdx,
+    currentRank: advancedRank,
+
+    lastClaimRank: 0,
+    lastClaimCount: 0,
+    lastPlayCommit: pad(32, ""),
+    lastPlayerIdx: 0,
+    hasPendingPlay: false,
+    challengeCalledAt: 0,
+    isChallenged: false,
+
+    pileSize: newPileSize,
+    p1Score: m.p1Score,
+    p2Score: m.p2Score,
+    p1HandSize: m.p1HandSize,
+    p2HandSize: m.p2HandSize,
+
+    winner: m.winner,
+    escrowReleased: m.escrowReleased
+  };
+  matches.insert(disclose(matchId), disclose(updated));
+}
+
+// Passive player calls "Proof or Bluff!" — marks the pending play as
+// challenged. The challenged player now owes a resolution within the
+// timeout window or they forfeit (via forfeitStalledChallenge).
+export circuit challengeClaim(matchId: Bytes<32>, currentTime: Uint<64>): [] {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  const m = matches.lookup(disclose(matchId));
+  assert(disclose(m.phase) == (3 as Uint<8>), "No pending play to challenge");
+  assert(m.hasPendingPlay, "No pending play");
+  assert(!m.isChallenged, "Already challenged");
+
+  const caller = ownPublicKey();
+  assert((caller == m.playerOne) || (caller == m.playerTwo), "Not a player");
+  const callerIdx: Uint<8> = (caller == m.playerOne) ? 0 : 1;
+  assert(disclose(callerIdx) != disclose(m.lastPlayerIdx),
+    "Only the passive player can challenge");
+
+  const updated = MatchState {
+    playerOne: m.playerOne,
+    playerTwo: m.playerTwo,
+    mode: m.mode,
+    winThreshold: m.winThreshold,
+    wagerAmount: m.wagerAmount,
+    createdAt: m.createdAt,
+
+    p1EntropyCommit: m.p1EntropyCommit,
+    p2EntropyCommit: m.p2EntropyCommit,
+    combinedSeed: m.combinedSeed,
+    seedFinalized: m.seedFinalized,
+
+    phase: m.phase,
+    activePlayerIdx: m.activePlayerIdx,
+    currentRank: m.currentRank,
+
+    lastClaimRank: m.lastClaimRank,
+    lastClaimCount: m.lastClaimCount,
+    lastPlayCommit: m.lastPlayCommit,
+    lastPlayerIdx: m.lastPlayerIdx,
+    hasPendingPlay: m.hasPendingPlay,
+    challengeCalledAt: currentTime,
+    isChallenged: true,
+
+    pileSize: m.pileSize,
+    p1Score: m.p1Score,
+    p2Score: m.p2Score,
+    p1HandSize: m.p1HandSize,
+    p2HandSize: m.p2HandSize,
+
+    winner: m.winner,
+    escrowReleased: m.escrowReleased
+  };
+  matches.insert(disclose(matchId), disclose(updated));
+  totalChallengesIssued.increment(1);
+}
+
+// THE ZK SHOWCASE MOMENT. The challenged player calls this with their
+// witnesses (card ranks + salts); the circuit:
+//   1. Verifies `persistentHash(witness) == lastPlayCommit` (no cheating).
+//   2. Counts how many of the revealed ranks equal `lastClaimRank`.
+//   3. If all match → claim was true → challenger takes pile & loses 1 pt.
+//   4. Else         → claim was false → bluffer takes pile; challenger +3.
+//   5. Applies win condition (score threshold OR empty-hand) and moves
+//      to GAMEOVER if satisfied; otherwise back to PLAYING with the
+//      challenger as the new active player.
+// ONLY the boolean result is disclosed. The actual card ranks are never
+// revealed on-chain in either outcome.
+export circuit resolveChallenge(matchId: Bytes<32>): Boolean {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  const m = matches.lookup(disclose(matchId));
+  assert(disclose(m.phase) == (3 as Uint<8>), "No challenge in progress");
+  assert(m.hasPendingPlay, "No pending play");
+  assert(m.isChallenged, "Play was not challenged");
+
+  const caller = ownPublicKey();
+  assert((caller == m.playerOne) || (caller == m.playerTwo), "Not a player");
+  const callerIdx: Uint<8> = (caller == m.playerOne) ? 0 : 1;
+  assert(disclose(callerIdx) == disclose(m.lastPlayerIdx),
+    "Only the challenged player can resolve");
+
+  const reveal = revealLastPlay();
+  assert(disclose(reveal.count) == disclose(m.lastClaimCount),
+    "Reveal count mismatches claim");
+
+  const recomputed = persistentHash<PlayRevealWitness>(reveal);
+  assert(disclose(recomputed) == disclose(m.lastPlayCommit),
+    "Reveal does not match committed play");
+
+  const matchingCount = countMatchingRanks(reveal, m.lastClaimRank);
+  const claimWasTrue: Boolean = (matchingCount == m.lastClaimCount);
+
+  const pileToTransfer = (m.pileSize + (m.lastClaimCount as Uint<32>)) as Uint<32>;
+  const challengerIdx: Uint<8> = (m.lastPlayerIdx == (0 as Uint<8>)) ? 1 : 0;
+
+  // Who picks up the pile: challenger if truthful, bluffer if false.
+  const p1TakesPile: Boolean = disclose(claimWasTrue)
+    ? (challengerIdx == (0 as Uint<8>))
+    : (m.lastPlayerIdx == (0 as Uint<8>));
+  const p2TakesPile: Boolean = disclose(claimWasTrue)
+    ? (challengerIdx == (1 as Uint<8>))
+    : (m.lastPlayerIdx == (1 as Uint<8>));
+
+  const nextP1Hand: Uint<32> = p1TakesPile
+    ? (m.p1HandSize + pileToTransfer) as Uint<32>
+    : m.p1HandSize;
+  const nextP2Hand: Uint<32> = p2TakesPile
+    ? (m.p2HandSize + pileToTransfer) as Uint<32>
+    : m.p2HandSize;
+
+  // Score adjustments: challenger +3 on catch, challenger -1 on failure.
+  const p1ScoreDelta: Uint<32> = disclose(claimWasTrue)
+    ? (challengerIdx == (0 as Uint<8>) ? 0 : 0)
+    : (challengerIdx == (0 as Uint<8>) ? 3 : 0);
+  const p2ScoreDelta: Uint<32> = disclose(claimWasTrue)
+    ? (challengerIdx == (1 as Uint<8>) ? 0 : 0)
+    : (challengerIdx == (1 as Uint<8>) ? 3 : 0);
+  const p1ScorePenalty: Uint<32> = (disclose(claimWasTrue) && (challengerIdx == (0 as Uint<8>))) ? 1 : 0;
+  const p2ScorePenalty: Uint<32> = (disclose(claimWasTrue) && (challengerIdx == (1 as Uint<8>))) ? 1 : 0;
+
+  const nextP1Score: Uint<32> = subWithFloor32((m.p1Score + p1ScoreDelta) as Uint<32>, p1ScorePenalty);
+  const nextP2Score: Uint<32> = subWithFloor32((m.p2Score + p2ScoreDelta) as Uint<32>, p2ScorePenalty);
+
+  // Win detection (mode-dependent).
+  const threshAsU32: Uint<32> = m.winThreshold as Uint<32>;
+  const emptyHand = isEmptyHandMode(m.mode);
+
+  const p1WinsScore: Boolean = (!emptyHand) && (nextP1Score >= threshAsU32);
+  const p2WinsScore: Boolean = (!emptyHand) && (!p1WinsScore) && (nextP2Score >= threshAsU32);
+  const p1WinsEmpty: Boolean = emptyHand && (nextP1Hand == (0 as Uint<32>));
+  const p2WinsEmpty: Boolean = emptyHand && (!p1WinsEmpty) && (nextP2Hand == (0 as Uint<32>));
+
+  const newWinner: Uint<8> =
+    (p1WinsScore || p1WinsEmpty) ? 1
+    : (p2WinsScore || p2WinsEmpty) ? 2
+    : 0;
+  const newCompleted: Boolean = (newWinner != (0 as Uint<8>));
+  const newPhase: Uint<8> = newCompleted ? 4 : 2;
+
+  const advancedRank = nextRank(m.currentRank);
+  const nextActive: Uint<8> = newCompleted ? m.activePlayerIdx : challengerIdx;
+
+  const updated = MatchState {
+    playerOne: m.playerOne,
+    playerTwo: m.playerTwo,
+    mode: m.mode,
+    winThreshold: m.winThreshold,
+    wagerAmount: m.wagerAmount,
+    createdAt: m.createdAt,
+
+    p1EntropyCommit: m.p1EntropyCommit,
+    p2EntropyCommit: m.p2EntropyCommit,
+    combinedSeed: m.combinedSeed,
+    seedFinalized: m.seedFinalized,
+
+    phase: newPhase,
+    activePlayerIdx: nextActive,
+    currentRank: advancedRank,
+
+    lastClaimRank: 0,
+    lastClaimCount: 0,
+    lastPlayCommit: pad(32, ""),
+    lastPlayerIdx: 0,
+    hasPendingPlay: false,
+    challengeCalledAt: 0,
+    isChallenged: false,
+
+    pileSize: 0,
+    p1Score: nextP1Score,
+    p2Score: nextP2Score,
+    p1HandSize: nextP1Hand,
+    p2HandSize: nextP2Hand,
+
+    winner: newWinner,
+    escrowReleased: m.escrowReleased
+  };
+
+  matches.insert(disclose(matchId), disclose(updated));
+  if (newCompleted) { totalMatchesCompleted.increment(1); }
+
+  return disclose(claimWasTrue);
+}
+
+// Anti-griefing timeout. If the challenged player doesn't call
+// `resolveChallenge` within `timeoutSeconds`, anyone can force the match
+// to treat the claim as FALSE — the bluffer picks up the pile and the
+// challenger collects the +3 reward. This protects against stall tactics.
+export circuit forfeitStalledChallenge(
+  matchId: Bytes<32>,
+  currentTime: Uint<64>,
+  timeoutSeconds: Uint<64>
+): [] {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  const m = matches.lookup(disclose(matchId));
+  assert(m.isChallenged, "No challenge in progress");
+  assert(m.hasPendingPlay, "No pending play");
+  assert(disclose(currentTime) >= disclose((m.challengeCalledAt + timeoutSeconds) as Uint<64>),
+    "Challenge window still open");
+
+  const challengerIdx: Uint<8> = (m.lastPlayerIdx == (0 as Uint<8>)) ? 1 : 0;
+  const pileToTransfer = (m.pileSize + (m.lastClaimCount as Uint<32>)) as Uint<32>;
+
+  const nextP1Hand: Uint<32> = (m.lastPlayerIdx == (0 as Uint<8>))
+    ? (m.p1HandSize + pileToTransfer) as Uint<32>
+    : m.p1HandSize;
+  const nextP2Hand: Uint<32> = (m.lastPlayerIdx == (1 as Uint<8>))
+    ? (m.p2HandSize + pileToTransfer) as Uint<32>
+    : m.p2HandSize;
+
+  const nextP1Score: Uint<32> = (challengerIdx == (0 as Uint<8>))
+    ? (m.p1Score + 3) as Uint<32>
+    : m.p1Score;
+  const nextP2Score: Uint<32> = (challengerIdx == (1 as Uint<8>))
+    ? (m.p2Score + 3) as Uint<32>
+    : m.p2Score;
+
+  const threshAsU32: Uint<32> = m.winThreshold as Uint<32>;
+  const emptyHand = isEmptyHandMode(m.mode);
+  const p1WinsScore: Boolean = (!emptyHand) && (nextP1Score >= threshAsU32);
+  const p2WinsScore: Boolean = (!emptyHand) && (!p1WinsScore) && (nextP2Score >= threshAsU32);
+
+  const newWinner: Uint<8> = p1WinsScore ? 1 : (p2WinsScore ? 2 : 0);
+  const newCompleted: Boolean = (newWinner != (0 as Uint<8>));
+  const newPhase: Uint<8> = newCompleted ? 4 : 2;
+
+  const advancedRank = nextRank(m.currentRank);
+  const nextActive: Uint<8> = newCompleted ? m.activePlayerIdx : challengerIdx;
+
+  const updated = MatchState {
+    playerOne: m.playerOne,
+    playerTwo: m.playerTwo,
+    mode: m.mode,
+    winThreshold: m.winThreshold,
+    wagerAmount: m.wagerAmount,
+    createdAt: m.createdAt,
+
+    p1EntropyCommit: m.p1EntropyCommit,
+    p2EntropyCommit: m.p2EntropyCommit,
+    combinedSeed: m.combinedSeed,
+    seedFinalized: m.seedFinalized,
+
+    phase: newPhase,
+    activePlayerIdx: nextActive,
+    currentRank: advancedRank,
+
+    lastClaimRank: 0,
+    lastClaimCount: 0,
+    lastPlayCommit: pad(32, ""),
+    lastPlayerIdx: 0,
+    hasPendingPlay: false,
+    challengeCalledAt: 0,
+    isChallenged: false,
+
+    pileSize: 0,
+    p1Score: nextP1Score,
+    p2Score: nextP2Score,
+    p1HandSize: nextP1Hand,
+    p2HandSize: nextP2Hand,
+
+    winner: newWinner,
+    escrowReleased: m.escrowReleased
+  };
+  matches.insert(disclose(matchId), disclose(updated));
+  if (newCompleted) { totalMatchesCompleted.increment(1); }
+}
+
+// After GAMEOVER, the winner flips the escrow flag. Actual wager payout
+// happens off-chain via the SDK in MVP; this latch prevents double-claims
+// and provides an on-chain audit trail.
+export circuit claimPayout(matchId: Bytes<32>): [] {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  const m = matches.lookup(disclose(matchId));
+  assert(disclose(m.phase) == (4 as Uint<8>), "Match not in GAMEOVER");
+  assert(!m.escrowReleased, "Payout already claimed");
+
+  const caller = ownPublicKey();
+  const expected: ZswapCoinPublicKey = (m.winner == (1 as Uint<8>)) ? m.playerOne : m.playerTwo;
+  assert(caller == expected, "Only the winner can claim");
+
+  const updated = MatchState {
+    playerOne: m.playerOne,
+    playerTwo: m.playerTwo,
+    mode: m.mode,
+    winThreshold: m.winThreshold,
+    wagerAmount: m.wagerAmount,
+    createdAt: m.createdAt,
+
+    p1EntropyCommit: m.p1EntropyCommit,
+    p2EntropyCommit: m.p2EntropyCommit,
+    combinedSeed: m.combinedSeed,
+    seedFinalized: m.seedFinalized,
+
+    phase: m.phase,
+    activePlayerIdx: m.activePlayerIdx,
+    currentRank: m.currentRank,
+
+    lastClaimRank: m.lastClaimRank,
+    lastClaimCount: m.lastClaimCount,
+    lastPlayCommit: m.lastPlayCommit,
+    lastPlayerIdx: m.lastPlayerIdx,
+    hasPendingPlay: m.hasPendingPlay,
+    challengeCalledAt: m.challengeCalledAt,
+    isChallenged: m.isChallenged,
+
+    pileSize: m.pileSize,
+    p1Score: m.p1Score,
+    p2Score: m.p2Score,
+    p1HandSize: m.p1HandSize,
+    p2HandSize: m.p2HandSize,
+
+    winner: m.winner,
+    escrowReleased: true
+  };
+  matches.insert(disclose(matchId), disclose(updated));
+}
+
+// ============================================================================
+// READ-ONLY QUERIES
+// ============================================================================
+
+export circuit getMatch(matchId: Bytes<32>): MatchState {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  return matches.lookup(disclose(matchId));
+}
+
+export circuit getMatchPhase(matchId: Bytes<32>): Uint<8> {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  return matches.lookup(disclose(matchId)).phase;
+}
+
+export circuit getWinner(matchId: Bytes<32>): Uint<8> {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  return matches.lookup(disclose(matchId)).winner;
+}

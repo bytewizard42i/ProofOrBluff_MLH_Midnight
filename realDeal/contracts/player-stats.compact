@@ -1,0 +1,451 @@
+// ============================================================================
+// Proof or Bluff — player-stats.compact
+// ============================================================================
+//
+// Persistent per-player statistics for Proof or Bluff. Tracks matches
+// played, rank points (ELO-style), streaks, and enables ZK-verifiable
+// achievement claims without revealing full match history.
+//
+// WHY THIS CONTRACT EXISTS (aka: the profitability hook)
+//   The match contract (`proof-or-bluff.compact`) settles a single game
+//   and forgets. This contract makes play PERSISTENT:
+//
+//   - **Ranked play**: Players compete for rank points; tournament entry
+//     can require `proveTierAtLeast(GOLD)` without revealing the player's
+//     actual score or history.
+//   - **Achievements**: Ten baseline achievements (first match, first win,
+//     win streaks, rank thresholds) that players prove for NFT badges,
+//     cosmetic unlocks, and social bragging rights.
+//   - **Tournaments**: Organizers gate entry on `proveMatchesPlayedAtLeast`
+//     and `proveTierAtLeast`. The contract proves eligibility in ZK
+//     without doxing the player.
+//   - **Seasons**: The `currentSeasonId` counter allows periodic resets.
+//     Peak rank is preserved across seasons for lifetime achievements.
+//   - **Battle pass**: Off-chain, the UI reads `matchesPlayed`,
+//     `successfulChallenges`, etc. to progress battle-pass XP.
+//
+// OPERATOR MODEL (MVP)
+//   The `statsOperator` is captured at deploy time. Match results are
+//   written by the operator (a trusted backend signed by the game's
+//   own wallet key). Players never mutate their own stats directly —
+//   all mutations route through the operator to prevent self-promotion
+//   cheats.
+//
+//   A future version will replace the single operator with:
+//     - A match-contract cross-call (the match contract writes results
+//       directly once cross-contract composition is validated on 0.30).
+//     - A multi-op signature scheme for multiple tournament organizers.
+//
+// RANK POINTS MODEL (MVP)
+//   Every player starts at 1000. The match layer (off-chain or the
+//   match contract) computes `rankDelta` per match and calls
+//   `recordMatchResult`. For MVP we use a simple fixed delta:
+//     - Win:            +25
+//     - Loss:           -25 (isPenalty = true)
+//     - Forfeit win:    +10 (opponent walked)
+//     - Forfeit loss:   -40 (deterrent for quitting)
+//   Full ELO (with opponent-strength scaling) is a Phase 2 upgrade.
+//
+// RANK TIERS (derived from current rankPoints)
+//     BRONZE    =  0   to  999
+//     SILVER    = 1000 to 1199
+//     GOLD      = 1200 to 1399
+//     PLATINUM  = 1400 to 1599
+//     DIAMOND   = 1600 to 1799
+//     MASTER    = 1800 to 1999
+//     LEGEND    = 2000+
+//
+// ACHIEVEMENTS (derived from counters, no bitmask required)
+//     0. FIRST_MATCH       — matchesPlayed >= 1
+//     1. FIRST_WIN         — matchesWon >= 1
+//     2. TEN_WINS          — matchesWon >= 10
+//     3. HUNDRED_WINS      — matchesWon >= 100
+//     4. STREAK_FIVE       — longestWinStreak >= 5
+//     5. STREAK_TEN        — longestWinStreak >= 10
+//     6. REACH_GOLD        — peakRankPoints >= 1200
+//     7. REACH_DIAMOND     — peakRankPoints >= 1600
+//     8. REACH_MASTER      — peakRankPoints >= 1800
+//     9. REACH_LEGEND      — peakRankPoints >= 2000
+//
+//   Achievements are COMPUTED at query time from the raw counters.
+//   No bitmask storage is needed. Adding new achievements in a future
+//   version requires only extending `proveAchievementUnlocked`.
+//
+// DIDz INTEGRATION
+//   `playerKey` is a wallet pub-key. Off-chain, each player can bind
+//   their wallet to a `did:midnight:...` via DIDz.io's attestation
+//   mechanism — producing a portable reputation that carries across
+//   all DIDzMonolith products (ProMingle professional cred, SouLink
+//   social trust, HuddleBridge speaker rep, etc.).
+//
+// COMPILER
+//   - compactc v0.30.0, language pragma >= 0.16 && <= 0.21
+//   - Validated on the hosted Compact playground (skipZk mode)
+//   - Notable v0.30 constraint: `|` bitwise OR on Uint types is not
+//     accepted, so achievements are counter-derived rather than stored
+//     as a bitmask.
+// ============================================================================
+
+pragma language_version >= 0.16 && <= 0.21;
+
+import CompactStandardLibrary;
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+// Match outcome as reported by the match layer / operator.
+export enum MatchOutcome {
+  WIN,           // 0 — normal win (earned through play)
+  LOSS,          // 1 — normal loss
+  FORFEIT_WIN,   // 2 — opponent quit or timed out (reduced rank reward)
+  FORFEIT_LOSS   // 3 — you quit/timed out (amplified rank penalty)
+}
+
+// Rank tier derived from current rankPoints. Public-facing.
+export enum RankTier {
+  BRONZE,      // 0
+  SILVER,      // 1
+  GOLD,        // 2
+  PLATINUM,    // 3
+  DIAMOND,     // 4
+  MASTER,      // 5
+  LEGEND       // 6
+}
+
+// Achievement catalog. Derived at query time, not stored.
+export enum AchievementId {
+  FIRST_MATCH,         // 0
+  FIRST_WIN,           // 1
+  TEN_WINS,            // 2
+  HUNDRED_WINS,        // 3
+  STREAK_FIVE,         // 4
+  STREAK_TEN,          // 5
+  REACH_GOLD,          // 6
+  REACH_DIAMOND,       // 7
+  REACH_MASTER,        // 8
+  REACH_LEGEND         // 9
+}
+
+// ============================================================================
+// DATA STRUCTURES
+// ============================================================================
+
+// One record per player. Keyed by hash(playerKey). Fully public — this is
+// a reputation ledger; privacy comes from ZK query circuits that prove
+// thresholds without revealing raw stats.
+struct PlayerRecord {
+  playerKey: ZswapCoinPublicKey;
+
+  // Match aggregates
+  matchesPlayed: Uint<32>;
+  matchesWon: Uint<32>;
+  matchesLost: Uint<32>;
+  matchesForfeited: Uint<32>;
+
+  // Rank
+  rankPoints: Uint<32>;           // current — starts at 1000
+  peakRankPoints: Uint<32>;       // all-time high (survives season resets)
+
+  // Streaks
+  currentWinStreak: Uint<32>;
+  longestWinStreak: Uint<32>;
+
+  // Challenge stats (from individual challenge events, not matches)
+  successfulChallenges: Uint<32>;
+  failedChallenges: Uint<32>;
+
+  // Timestamps
+  firstMatchAt: Uint<64>;
+  lastMatchAt: Uint<64>;
+
+  // Season tracking (allows cosmetic/rank resets; peak rank preserved)
+  seasonId: Uint<32>;
+
+  // Lifecycle flag — prevents double-registration (idempotent create)
+  initialized: Boolean;
+}
+
+struct PlayerKeyHashInput {
+  separator: Bytes<32>;
+  playerKey: ZswapCoinPublicKey;
+}
+
+// ============================================================================
+// LEDGER STATE
+// ============================================================================
+
+export ledger players: Map<Bytes<32>, PlayerRecord>;
+export ledger totalPlayersRegistered: Counter;
+export ledger totalMatchResultsRecorded: Counter;
+export ledger currentSeasonId: Counter;
+
+// The operator (game backend wallet) authorized to write results.
+sealed ledger statsOperator: ZswapCoinPublicKey;
+
+// ============================================================================
+// CONSTRUCTOR
+// ============================================================================
+
+constructor() { statsOperator = ownPublicKey(); }
+
+// ============================================================================
+// INTERNAL HELPERS
+// ============================================================================
+
+circuit hashPlayerKey(playerKey: ZswapCoinPublicKey): Bytes<32> {
+  return persistentHash<PlayerKeyHashInput>(PlayerKeyHashInput {
+    separator: pad(32, "pob:playerkey:v1"),
+    playerKey: playerKey
+  });
+}
+
+// Saturating add — clamps at maxVal to prevent Uint overflow.
+circuit addWithClamp32(a: Uint<32>, b: Uint<32>, maxVal: Uint<32>): Uint<32> {
+  const sum = (a + b) as Uint<32>;
+  if (sum > maxVal) { return maxVal; }
+  if (sum < a)      { return maxVal; }   // overflow wrap guard
+  return sum;
+}
+
+// Floored subtract — never underflows below 0.
+circuit subWithFloor32(a: Uint<32>, b: Uint<32>): Uint<32> {
+  if (a <= b) { return 0; }
+  return (a - b) as Uint<32>;
+}
+
+circuit maxU32(a: Uint<32>, b: Uint<32>): Uint<32> {
+  if (a >= b) { return a; }
+  return b;
+}
+
+// ============================================================================
+// PLAYER LIFECYCLE
+// ============================================================================
+
+// Idempotent: creates a fresh record at rank 1000 if this player has never
+// been seen, otherwise a no-op. Players call this once before their first
+// match. Returns the internal slot key (hash of their pubkey).
+export circuit getOrCreatePlayerRecord(
+  currentTime: Uint<64>
+): Bytes<32> {
+  const caller = ownPublicKey();
+  const slotKey = hashPlayerKey(caller);
+
+  if (!players.member(disclose(slotKey))) {
+    const fresh = PlayerRecord {
+      playerKey: caller,
+      matchesPlayed: 0,
+      matchesWon: 0,
+      matchesLost: 0,
+      matchesForfeited: 0,
+      rankPoints: 1000,
+      peakRankPoints: 1000,
+      currentWinStreak: 0,
+      longestWinStreak: 0,
+      successfulChallenges: 0,
+      failedChallenges: 0,
+      firstMatchAt: currentTime,
+      lastMatchAt: currentTime,
+      seasonId: currentSeasonId.read() as Uint<32>,
+      initialized: true
+    };
+    players.insert(disclose(slotKey), disclose(fresh));
+    totalPlayersRegistered.increment(1);
+  }
+
+  return disclose(slotKey);
+}
+
+// ============================================================================
+// RESULT RECORDING (OPERATOR-ONLY)
+// ============================================================================
+
+// Record a match result for one player. Called TWICE per completed match
+// (once per player) by the operator after the match layer resolves a
+// winner. `rankDelta` and `isPenalty` come from the match-scoring model
+// off-chain (MVP: fixed ±25 / ±10 / ±40 deltas per MatchOutcome).
+export circuit recordMatchResult(
+  playerKey: ZswapCoinPublicKey,
+  outcome: Uint<8>,                // MatchOutcome cast as Uint<8>
+  rankDelta: Uint<32>,
+  isPenalty: Boolean,              // true ⇒ subtract; false ⇒ add
+  currentTime: Uint<64>
+): [] {
+  assert(ownPublicKey() == statsOperator, "Only stats operator can record results");
+  assert(disclose(outcome) <= (3 as Uint<8>), "Outcome out of range");
+
+  const slotKey = hashPlayerKey(playerKey);
+  assert(players.member(disclose(slotKey)), "Player not registered");
+  const p = players.lookup(disclose(slotKey));
+
+  const isWin: Boolean = (outcome == (0 as Uint<8>)) || (outcome == (2 as Uint<8>));
+  const isForfeit: Boolean = (outcome == (2 as Uint<8>)) || (outcome == (3 as Uint<8>));
+
+  const nextMatchesPlayed    = (p.matchesPlayed + 1) as Uint<32>;
+  const nextMatchesWon       = isWin ? (p.matchesWon + 1) as Uint<32> : p.matchesWon;
+  const nextMatchesLost      = (!isWin) ? (p.matchesLost + 1) as Uint<32> : p.matchesLost;
+  const nextMatchesForfeited = isForfeit ? (p.matchesForfeited + 1) as Uint<32> : p.matchesForfeited;
+
+  const nextRankPoints: Uint<32> = isPenalty
+    ? subWithFloor32(p.rankPoints, rankDelta)
+    : addWithClamp32(p.rankPoints, rankDelta, (4000000000 as Uint<32>));
+  const nextPeakRank = maxU32(p.peakRankPoints, nextRankPoints);
+
+  const nextCurrentStreak = isWin ? (p.currentWinStreak + 1) as Uint<32> : 0;
+  const nextLongestStreak = maxU32(p.longestWinStreak, nextCurrentStreak);
+
+  const updated = PlayerRecord {
+    playerKey: p.playerKey,
+    matchesPlayed: nextMatchesPlayed,
+    matchesWon: nextMatchesWon,
+    matchesLost: nextMatchesLost,
+    matchesForfeited: nextMatchesForfeited,
+    rankPoints: nextRankPoints,
+    peakRankPoints: nextPeakRank,
+    currentWinStreak: nextCurrentStreak,
+    longestWinStreak: nextLongestStreak,
+    successfulChallenges: p.successfulChallenges,
+    failedChallenges: p.failedChallenges,
+    firstMatchAt: p.firstMatchAt,
+    lastMatchAt: currentTime,
+    seasonId: p.seasonId,
+    initialized: true
+  };
+
+  players.insert(disclose(slotKey), disclose(updated));
+  totalMatchResultsRecorded.increment(1);
+}
+
+// Record a single challenge outcome (optional — for fine-grained stats
+// beyond match-level aggregates). Called per challenge resolution.
+export circuit recordChallengeOutcome(
+  playerKey: ZswapCoinPublicKey,
+  wasSuccessful: Boolean           // true ⇒ they caught a bluff
+): [] {
+  assert(ownPublicKey() == statsOperator, "Only stats operator can record outcomes");
+
+  const slotKey = hashPlayerKey(playerKey);
+  assert(players.member(disclose(slotKey)), "Player not registered");
+  const p = players.lookup(disclose(slotKey));
+
+  const nextSuccessful = disclose(wasSuccessful)
+    ? (p.successfulChallenges + 1) as Uint<32>
+    : p.successfulChallenges;
+  const nextFailed = (!disclose(wasSuccessful))
+    ? (p.failedChallenges + 1) as Uint<32>
+    : p.failedChallenges;
+
+  const updated = PlayerRecord {
+    playerKey: p.playerKey,
+    matchesPlayed: p.matchesPlayed,
+    matchesWon: p.matchesWon,
+    matchesLost: p.matchesLost,
+    matchesForfeited: p.matchesForfeited,
+    rankPoints: p.rankPoints,
+    peakRankPoints: p.peakRankPoints,
+    currentWinStreak: p.currentWinStreak,
+    longestWinStreak: p.longestWinStreak,
+    successfulChallenges: nextSuccessful,
+    failedChallenges: nextFailed,
+    firstMatchAt: p.firstMatchAt,
+    lastMatchAt: p.lastMatchAt,
+    seasonId: p.seasonId,
+    initialized: p.initialized
+  };
+
+  players.insert(disclose(slotKey), disclose(updated));
+}
+
+// Advance the global season counter. Cosmetic/competitive seasons can
+// read this to reset leaderboards while keeping `peakRankPoints` intact
+// as the lifetime high-water mark.
+export circuit advanceSeason(): [] {
+  assert(ownPublicKey() == statsOperator, "Only operator can advance season");
+  currentSeasonId.increment(1);
+}
+
+// ============================================================================
+// CONSUMER-FACING QUERIES (public read + ZK-style proofs)
+// ============================================================================
+
+// Full record read. Anyone can read any player's record — this is a
+// public reputation ledger by design.
+export circuit getPlayerRecord(
+  playerKey: ZswapCoinPublicKey
+): PlayerRecord {
+  const slotKey = hashPlayerKey(playerKey);
+  assert(players.member(disclose(slotKey)), "Player not registered");
+  return players.lookup(disclose(slotKey));
+}
+
+// Threshold proofs — return a Boolean without requiring the verifier to
+// read the full record. Suitable for tournament-entry gating.
+export circuit proveRankAtLeast(
+  playerKey: ZswapCoinPublicKey,
+  minRank: Uint<32>
+): Boolean {
+  const slotKey = hashPlayerKey(playerKey);
+  if (!players.member(disclose(slotKey))) { return false; }
+  const p = players.lookup(disclose(slotKey));
+  return p.rankPoints >= minRank;
+}
+
+export circuit proveMatchesPlayedAtLeast(
+  playerKey: ZswapCoinPublicKey,
+  minCount: Uint<32>
+): Boolean {
+  const slotKey = hashPlayerKey(playerKey);
+  if (!players.member(disclose(slotKey))) { return false; }
+  const p = players.lookup(disclose(slotKey));
+  return p.matchesPlayed >= minCount;
+}
+
+// Achievements are DERIVED from the raw counters — no bitmask storage.
+// This keeps storage small and lets us add new achievements in future
+// versions without migrating existing records.
+export circuit proveAchievementUnlocked(
+  playerKey: ZswapCoinPublicKey,
+  achievementId: Uint<8>           // AchievementId cast as Uint<8>
+): Boolean {
+  assert(disclose(achievementId) <= (9 as Uint<8>), "Achievement id out of range");
+  const slotKey = hashPlayerKey(playerKey);
+  if (!players.member(disclose(slotKey))) { return false; }
+  const p = players.lookup(disclose(slotKey));
+
+  if (achievementId == (0 as Uint<8>)) { return p.matchesPlayed >= (1 as Uint<32>); }
+  if (achievementId == (1 as Uint<8>)) { return p.matchesWon >= (1 as Uint<32>); }
+  if (achievementId == (2 as Uint<8>)) { return p.matchesWon >= (10 as Uint<32>); }
+  if (achievementId == (3 as Uint<8>)) { return p.matchesWon >= (100 as Uint<32>); }
+  if (achievementId == (4 as Uint<8>)) { return p.longestWinStreak >= (5 as Uint<32>); }
+  if (achievementId == (5 as Uint<8>)) { return p.longestWinStreak >= (10 as Uint<32>); }
+  if (achievementId == (6 as Uint<8>)) { return p.peakRankPoints >= (1200 as Uint<32>); }
+  if (achievementId == (7 as Uint<8>)) { return p.peakRankPoints >= (1600 as Uint<32>); }
+  if (achievementId == (8 as Uint<8>)) { return p.peakRankPoints >= (1800 as Uint<32>); }
+  return p.peakRankPoints >= (2000 as Uint<32>);
+}
+
+// Rank tier derived from CURRENT (not peak) rankPoints. Used for
+// display badges and matchmaking brackets.
+export circuit getRankTier(
+  playerKey: ZswapCoinPublicKey
+): Uint<8> {
+  const slotKey = hashPlayerKey(playerKey);
+  if (!players.member(disclose(slotKey))) { return 0; }
+  const p = players.lookup(disclose(slotKey));
+  const r = p.rankPoints;
+  if (r >= (2000 as Uint<32>)) { return 6; }  // LEGEND
+  if (r >= (1800 as Uint<32>)) { return 5; }  // MASTER
+  if (r >= (1600 as Uint<32>)) { return 4; }  // DIAMOND
+  if (r >= (1400 as Uint<32>)) { return 3; }  // PLATINUM
+  if (r >= (1200 as Uint<32>)) { return 2; }  // GOLD
+  if (r >= (1000 as Uint<32>)) { return 1; }  // SILVER
+  return 0;                                   // BRONZE
+}
+
+export circuit proveTierAtLeast(
+  playerKey: ZswapCoinPublicKey,
+  minTier: Uint<8>
+): Boolean {
+  return getRankTier(playerKey) >= minTier;
+}
