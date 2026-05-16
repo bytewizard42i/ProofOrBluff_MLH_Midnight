@@ -55,6 +55,12 @@ function initGame(mode = 'home') {
     aiHand,
     deck,
     pile: [],
+    // Cards that have left play. When a challenge resolves, the active
+    // pile is discarded here instead of being scooped into a hand — the
+    // losing player draws fresh cards from the (reshuffled) deck as the
+    // penalty. Tracked so the bluff-probability estimator and any future
+    // ZK proofs can account for cards no longer in circulation.
+    discardPile: [],
     currentRank: startingRank,
     turn: 'player', // Player goes first
     status: 'playing',
@@ -178,9 +184,14 @@ function passTurn(state, { player } = { player: 'player' }) {
     return { error: 'You must accept or challenge the current claim first.' };
   }
 
-  const drawCount = Math.min(1, state.deck.length);
-  const drawn = state.deck.slice(0, drawCount);
-  const remainingDeck = state.deck.slice(drawCount);
+  // Reshuffle before drawing so the next card is unpredictable even to
+  // anyone who's been tracking deck order. This matches the casino-table
+  // behaviour we want when this gets promoted to the realDeal (Midnight ZK)
+  // engine: every draw consumes from a freshly re-randomized deck.
+  const shuffledDeck = shuffleDeck(state.deck);
+  const drawCount = Math.min(1, shuffledDeck.length);
+  const drawn = shuffledDeck.slice(0, drawCount);
+  const remainingDeck = shuffledDeck.slice(drawCount);
 
   const newState = { ...state };
   if (player === 'player') {
@@ -242,49 +253,61 @@ function challenge(state) {
   }
   newState.stats = newStats;
 
-  if (result.claimWasTrue) {
-    // Challenger loses — picks up the pile
-    if (challenger === 'player') {
-      newState.playerHand = [...state.playerHand, ...fullPile];
-    } else {
-      newState.aiHand = [...state.aiHand, ...fullPile];
-    }
-    const who = challenger === 'player' ? 'You pick' : 'AI picks';
-    newState.log.push(`CHALLENGE FAILED! The claim was true. ${who} up ${fullPile.length} card(s).`);
-    if (pileWasEmpty) {
-      newState.log.push(`The pile was empty — ${who.toLowerCase()} up the ${fullPile.length} card(s) just played as the penalty.`);
-    }
+  // New penalty mechanic (May 2026): the pile is *discarded* (out of play)
+  // and the losing player draws an equal number of replacement cards from
+  // the deck, which is reshuffled immediately before the draw. This
+  // matches the casino-style "provably fair" model we're building toward
+  // for the Midnight ZK realDeal engine — every draw consumes from a
+  // freshly re-randomized deck, so no one can game card order.
+  //
+  // Sizing of the penalty:
+  //   • Base penalty = pile cards that would have been scooped under the
+  //     old rules (fullPile.length).
+  //   • If caught bluffing on an empty pile, enforce a 2-card minimum so a
+  //     1-card bluff still hurts.
+  const MIN_BLUFF_PENALTY = 2;
+  const basePenalty = fullPile.length;
+  const caughtBluff = !result.claimWasTrue;
+  const penaltyTarget = caughtBluff && pileWasEmpty
+    ? Math.max(basePenalty, MIN_BLUFF_PENALTY)
+    : basePenalty;
+
+  const reshuffledDeck = shuffleDeck(state.deck);
+  const drawCount = Math.min(penaltyTarget, reshuffledDeck.length);
+  const drawnCards = reshuffledDeck.slice(0, drawCount);
+  const deckAfterDraw = reshuffledDeck.slice(drawCount);
+
+  const loser = caughtBluff ? bluffer : challenger;
+  if (loser === 'player') {
+    newState.playerHand = [...state.playerHand, ...drawnCards];
   } else {
-    // Bluffer loses — picks up the pile
-    if (bluffer === 'player') {
-      newState.playerHand = [...state.playerHand, ...fullPile];
-    } else {
-      newState.aiHand = [...state.aiHand, ...fullPile];
-    }
-    const who = bluffer === 'player' ? 'You pick' : 'AI picks';
-    newState.log.push(`CAUGHT BLUFFING! The claim was false. ${who} up ${fullPile.length} card(s).`);
-    if (pileWasEmpty) {
-      newState.log.push(`The pile was empty — ${who.toLowerCase()} up the ${fullPile.length} card(s) just played as the penalty.`);
-      // Minimum bluff penalty: when there's no pile to scoop, the
-      // bluffer must draw additional cards from the deck so the bluff
-      // still costs them at least 2 cards total. Otherwise a 1-card
-      // bluff on an empty pile would be nearly cost-free.
-      const MIN_BLUFF_PENALTY = 2;
-      const shortfall = Math.max(0, MIN_BLUFF_PENALTY - fullPile.length);
-      const extraDraw = Math.min(shortfall, state.deck.length);
-      if (extraDraw > 0) {
-        const drawn = state.deck.slice(0, extraDraw);
-        newState.deck = state.deck.slice(extraDraw);
-        if (bluffer === 'player') {
-          newState.playerHand = [...newState.playerHand, ...drawn];
-        } else {
-          newState.aiHand = [...newState.aiHand, ...drawn];
-        }
-        newState.log.push(
-          `Minimum bluff penalty: ${who.toLowerCase()} up ${extraDraw} additional card(s) from the deck.`
-        );
-      }
-    }
+    newState.aiHand = [...state.aiHand, ...drawnCards];
+  }
+  newState.deck = deckAfterDraw;
+  // Active pile leaves play permanently. We park it in discardPile so the
+  // UI / bluff-probability estimator / future ZK circuits can still see
+  // which cards are no longer in circulation.
+  newState.discardPile = [...(state.discardPile || []), ...fullPile];
+
+  const drawVerb = loser === 'player' ? 'You draw' : 'AI draws';
+  if (caughtBluff) {
+    newState.log.push(
+      `CAUGHT BLUFFING! The claim was false. ${drawVerb} ${drawCount} card(s) from the deck (pile discarded).`
+    );
+  } else {
+    newState.log.push(
+      `CHALLENGE FAILED! The claim was true. ${drawVerb} ${drawCount} card(s) from the deck (pile discarded).`
+    );
+  }
+  if (caughtBluff && pileWasEmpty && drawCount >= MIN_BLUFF_PENALTY && basePenalty < MIN_BLUFF_PENALTY) {
+    newState.log.push(
+      `Minimum bluff penalty enforced: ${MIN_BLUFF_PENALTY} cards even on an empty pile.`
+    );
+  }
+  if (drawCount < penaltyTarget) {
+    newState.log.push(
+      `Deck ran short — only ${drawCount} of ${penaltyTarget} penalty card(s) could be drawn.`
+    );
   }
 
   newState.pile = [];

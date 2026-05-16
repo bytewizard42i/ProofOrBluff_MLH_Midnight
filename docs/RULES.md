@@ -4,6 +4,24 @@
 
 > **Design rationale**: See [Gameplay Design Analysis](GAMEPLAY_RESEARCH.md) for the research behind these rules.
 
+> **⚠️ May 2026 mechanic change — supersedes older sections below**
+>
+> **The pile is no longer scooped on challenge resolution.** When a challenge
+> resolves (in either direction), the active pile is **discarded permanently**
+> and the losing player **draws an equal number of replacement cards from the
+> deck**. The deck is **reshuffled immediately before every draw** so order
+> can't be tracked or exploited.
+>
+> - **Caught bluffing** → bluffer draws `pile.length` cards from the reshuffled deck (min 2 if the pile was empty).
+> - **Challenge failed (claim was true)** → challenger draws `pile.length` cards from the reshuffled deck.
+> - **Pass turn** → passing player draws 1 card from the reshuffled deck.
+>
+> This is the precursor to the casino-mode "provably fair" Midnight ZK
+> implementation described in [`CASINO_PROVABLY_FAIR.md`](CASINO_PROVABLY_FAIR.md).
+> Older sections in this document still reference the "pick up the pile"
+> mechanic — they are kept for historical context and should be read with
+> the new rule in mind.
+
 ---
 
 ## Overview

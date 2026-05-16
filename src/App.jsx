@@ -207,7 +207,11 @@ function estimateAiBluffProbability(state, settings) {
   const copies = copiesPerRank(state.mode);
   const playerHasOfRank = state.playerHand.filter((c) => c.rank === claimedRank).length;
   const pileHasOfRank = state.pile.filter((c) => c.rank === claimedRank).length;
-  const aiCanHaveAtMost = Math.max(0, copies - playerHasOfRank - pileHasOfRank);
+  // Discarded cards are permanently out of play (post-May-2026 rule change:
+  // pile is discarded on challenge resolution rather than scooped). They
+  // still reduce the maximum the Ai could be holding.
+  const discardHasOfRank = (state.discardPile || []).filter((c) => c.rank === claimedRank).length;
+  const aiCanHaveAtMost = Math.max(0, copies - playerHasOfRank - pileHasOfRank - discardHasOfRank);
 
   if (claimedCount > aiCanHaveAtMost) {
     return {
@@ -322,8 +326,10 @@ function Tutorial({ onClose }) {
             <strong>Proof or Bluff!</strong>
           </li>
           <li>
-            If challenged: cards reveal. If you told the truth, the
-            challenger picks up the pile. If you bluffed, you do.
+            If challenged: cards reveal. The loser <strong>draws penalty
+            cards from the deck</strong> (equal to the pile size, minimum
+            2 if caught bluffing on an empty pile). The pile is then
+            discarded — it never goes back into anyone's hand.
           </li>
           <li>
             <strong>Empty your hand to win.</strong> Each player starts with
@@ -823,17 +829,17 @@ function classifyLog(text) {
     return make('ai', 'win-bad', '💀', 'Ai', text.replace(/^AI\s+/, ''));
   }
 
-  // Bluffer caught (CAUGHT BLUFFING) — bluffer picks up the pile.
-  // "You pick" => player bluffed and got caught (BAD for player).
-  // "AI picks" => AI bluffed and got caught (GOOD for player).
+  // Bluffer caught (CAUGHT BLUFFING) — bluffer draws penalty cards from
+  // the deck (pile discarded). "You draw" => player got caught (BAD).
+  // "AI draws" => AI got caught (GOOD).
   if (text.startsWith('CAUGHT BLUFFING')) {
-    if (text.includes('You pick')) return make('player', 'win-bad', '🔴', 'You', text);
+    if (text.includes('You draw')) return make('player', 'win-bad', '🔴', 'You', text);
     return make('ai', 'win-good', '🟢', 'Ai', text);
   }
 
-  // Challenge failed — claim was true, challenger picks up.
+  // Challenge failed — claim was true, challenger draws penalty cards.
   if (text.startsWith('CHALLENGE FAILED')) {
-    if (text.includes('You pick')) return make('player', 'win-bad', '🔴', 'You', text);
+    if (text.includes('You draw')) return make('player', 'win-bad', '🔴', 'You', text);
     return make('ai', 'win-good', '🟢', 'Ai', text);
   }
 
@@ -1065,22 +1071,22 @@ export default function App() {
       lastSoundedRef.current += 1;
       if (!entry) continue;
 
-      // Bluffer caught: bluffer picks up the pile.
+      // Bluffer caught: bluffer draws penalty cards from the deck.
       if (entry.startsWith('CAUGHT BLUFFING')) {
-        if (entry.includes('AI picks')) {
+        if (entry.includes('AI draws')) {
           playYouCaughtAi();
           setBanner({ kind: 'good', title: 'The Ai was bluffing!' });
-        } else if (entry.includes('You pick')) {
+        } else if (entry.includes('You draw')) {
           playYouGotCaught();
           setBanner({ kind: 'bad', title: 'Your bluff was called!' });
         }
       } else if (entry.startsWith('CHALLENGE FAILED')) {
         // Challenger was wrong (the claim was true).
-        if (entry.includes('AI picks')) {
+        if (entry.includes('AI draws')) {
           // AI challenged your honest claim and lost.
           playYouSurvivedChallenge();
           setBanner({ kind: 'good', title: 'Your honesty paid off!' });
-        } else if (entry.includes('You pick')) {
+        } else if (entry.includes('You draw')) {
           // You challenged a true Ai claim.
           playYouMisCalled();
           setBanner({ kind: 'bad', title: 'The Ai was telling the truth!' });
