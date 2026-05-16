@@ -608,6 +608,61 @@ button.active {
   gap: 1.5rem;
 }
 
+/* ────────── Play result banner ──────────
+ * Big bold call-out that appears below the pile after a play resolves
+ * (e.g. "Your bluff succeeded!", "The Ai was bluffing!"). Auto-clears
+ * after a few seconds in App.jsx.
+ */
+.play-banner {
+  margin-top: 0.5rem;
+  padding: 0.85rem 2rem;
+  border-radius: 14px;
+  border: 2px solid currentColor;
+  font-family: 'Cinzel', serif;
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-shadow: 0 0 14px currentColor, 0 2px 0 rgba(0, 0, 0, 0.45);
+  animation: banner-pop 0.45s cubic-bezier(0.34, 1.6, 0.5, 1) both;
+  max-width: 720px;
+}
+
+/* Good outcome for the player — emerald green */
+.play-banner.good {
+  color: #2ecc71;
+  background: rgba(46, 204, 113, 0.14);
+  box-shadow: 0 0 30px rgba(46, 204, 113, 0.45), inset 0 0 25px rgba(46, 204, 113, 0.15);
+}
+
+/* Bad outcome for the player — crimson */
+.play-banner.bad {
+  color: #ff5e5e;
+  background: rgba(255, 94, 94, 0.14);
+  box-shadow: 0 0 30px rgba(255, 94, 94, 0.45), inset 0 0 25px rgba(255, 94, 94, 0.15);
+}
+
+/* Game won — brighter, gold-tinted celebration */
+.play-banner.win {
+  color: var(--gold);
+  background: rgba(255, 214, 10, 0.14);
+  box-shadow: 0 0 40px rgba(255, 214, 10, 0.55), inset 0 0 30px rgba(255, 214, 10, 0.2);
+  font-size: 2.4rem;
+}
+
+/* Game lost — deep crimson */
+.play-banner.loss {
+  color: var(--crimson);
+  background: rgba(214, 40, 40, 0.18);
+  box-shadow: 0 0 35px rgba(214, 40, 40, 0.5), inset 0 0 25px rgba(214, 40, 40, 0.2);
+  font-size: 2.2rem;
+}
+
+@keyframes banner-pop {
+  from { opacity: 0; transform: scale(0.6) translateY(-8px); }
+  to   { opacity: 1; transform: scale(1)   translateY(0);    }
+}
+
 .pile-stack {
   position: relative;
   width: 100px;
@@ -927,9 +982,13 @@ button.active {
 }
 
 .log-badge.badge-ai {
-  color: var(--violet);
-  background: rgba(157, 78, 221, 0.18);
-  box-shadow: inset 0 0 12px rgba(157, 78, 221, 0.25);
+  /* Silver chrome tone — distinct from the violet Ai-area accent so the
+   * badge reads as a name plate rather than blending into the seat. */
+  color: #d8d8e0;
+  background: rgba(216, 216, 224, 0.12);
+  box-shadow: inset 0 0 12px rgba(216, 216, 224, 0.22);
+  border-color: #e0e0e8;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.55);
 }
 
 @keyframes log-in {

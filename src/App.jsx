@@ -448,7 +448,7 @@ function ResultOverlay({ winner, onRematch, onMenu }) {
 // Game Table
 // ─────────────────────────────────────────────────────────────
 
-function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displayedRank }) {
+function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displayedRank, banner }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [claimedCount, setClaimedCount] = useState(1);
   // IDs of cards currently mid-toss-animation. Held in local state so the
@@ -561,14 +561,11 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
       {/* Center pile */}
       <div className="center">
         <div className="required-rank">
-          <TurnArrow direction={state.turn === 'player' ? 'down' : 'up'} />
-          <div className="required-rank-text">
-            <span className="required-label">How many</span>
-            <span className="rank-display">
-              <span className="rank-glow" aria-hidden="true" />
-              <span className="rank">{displayedRank ?? state.currentRank}</span>
-            </span>
-          </div>
+          <span className="required-label">How many</span>
+          <span className="rank-display">
+            <span className="rank-glow" aria-hidden="true" />
+            <span className="rank">{displayedRank ?? state.currentRank}</span>
+          </span>
         </div>
 
         <div className="pile-display">
@@ -579,16 +576,13 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
               <div style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>Empty pile</div>
             )}
           </div>
-
-          {state.lastPlay && (
-            <div className="last-play">
-              <span className="who">{lastPlayWho}</span>
-              <span className="claim">
-                {formatClaim(state.lastPlay.claimedCount, state.lastPlay.claimedRank)}
-              </span>
-            </div>
-          )}
         </div>
+
+        {banner && (
+          <div className={`play-banner ${banner.kind}`}>
+            <span className="play-banner-text">{banner.title}</span>
+          </div>
+        )}
 
         {playerMustRespond && (
           <>
@@ -787,6 +781,24 @@ export default function App() {
   // revealed entry triggers its outcome cue exactly once.
   const lastSoundedRef = useRef(0);
 
+  // Remembers the most recent state.lastPlay even after the engine clears
+  // it, so we can tell whether an "AI accepted" event came after a bluff
+  // or an honest play (the cards aren't preserved anywhere else once the
+  // pile absorbs them).
+  const lastPlayRef = useRef(null);
+  useEffect(() => {
+    if (state?.lastPlay) lastPlayRef.current = state.lastPlay;
+  }, [state?.lastPlay]);
+
+  // Big result banner shown below the pile after a play resolves.
+  // Auto-clears after a few seconds so it doesn't linger into the next play.
+  const [banner, setBanner] = useState(null);
+  useEffect(() => {
+    if (!banner) return undefined;
+    const t = setTimeout(() => setBanner(null), 3500);
+    return () => clearTimeout(t);
+  }, [banner]);
+
   // ── Staggered log reveal ──
   // The engine pushes new entries onto state.log synchronously, but we want
   // the player to see them appear one at a time so each event has a beat
@@ -818,26 +830,53 @@ export default function App() {
     }
   }, [state, visibleLogCount, totalLogCount, displayedRank]);
 
-  // Play casino sound effects as outcome log entries reveal. We diff
-  // against the previous reveal count so each line plays at most once.
+  // Play casino sound effects + set the result banner as outcome log
+  // entries reveal. We diff against the previous reveal count so each
+  // line fires at most once.
   useEffect(() => {
     if (!state) return;
     while (lastSoundedRef.current < visibleLogCount) {
       const entry = state.log[lastSoundedRef.current];
       lastSoundedRef.current += 1;
       if (!entry) continue;
+
       // Bluffer caught: bluffer picks up the pile.
       if (entry.startsWith('CAUGHT BLUFFING')) {
-        if (entry.includes('AI picks')) playYouCaughtAi();
-        else if (entry.includes('You pick')) playYouGotCaught();
+        if (entry.includes('AI picks')) {
+          playYouCaughtAi();
+          setBanner({ kind: 'good', title: 'The Ai was bluffing!' });
+        } else if (entry.includes('You pick')) {
+          playYouGotCaught();
+          setBanner({ kind: 'bad', title: 'Your bluff was called!' });
+        }
       } else if (entry.startsWith('CHALLENGE FAILED')) {
-        // Challenger was wrong.
-        if (entry.includes('AI picks')) playYouSurvivedChallenge();
-        else if (entry.includes('You pick')) playYouMisCalled();
+        // Challenger was wrong (the claim was true).
+        if (entry.includes('AI picks')) {
+          // AI challenged your honest claim and lost.
+          playYouSurvivedChallenge();
+          setBanner({ kind: 'good', title: 'Your honesty paid off!' });
+        } else if (entry.includes('You pick')) {
+          // You challenged a true Ai claim.
+          playYouMisCalled();
+          setBanner({ kind: 'bad', title: 'The Ai was telling the truth!' });
+        }
       } else if (entry.startsWith('YOU WIN')) {
         playGameWon();
+        setBanner({ kind: 'win', title: 'Game won!' });
       } else if (entry.startsWith('AI WINS')) {
         playGameLost();
+        setBanner({ kind: 'loss', title: 'The Ai cleaned house.' });
+      } else if (entry.startsWith('AI accepted')) {
+        // No challenge — judge whether the player's last play was a bluff.
+        const last = lastPlayRef.current;
+        if (last && last.player === 'player') {
+          const wasBluff = last.cards.some((c) => c.rank !== last.claimedRank);
+          if (wasBluff) {
+            setBanner({ kind: 'good', title: 'Your bluff succeeded!' });
+          } else {
+            setBanner({ kind: 'good', title: 'Honest play — accepted.' });
+          }
+        }
       }
     }
   }, [visibleLogCount, state]);
@@ -993,6 +1032,7 @@ export default function App() {
               aiDialogue={aiDialogue}
               setAiDialogue={setAiDialogue}
               displayedRank={displayedRank}
+              banner={banner}
             />
           </div>
           {state.status === 'gameover' && (
