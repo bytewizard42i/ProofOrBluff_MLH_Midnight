@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   unlockAudio,
   setMuted as setAudioMuted,
+  setMusicVolume as setMusicVolumeApi,
   playYouCaughtAi,
   playYouGotCaught,
   playYouSurvivedChallenge,
@@ -892,6 +893,20 @@ export default function App() {
     try { window.localStorage.setItem('pob.muted', muted ? '1' : '0'); } catch { /* noop */ }
   }, [muted]);
 
+  // Music volume — independent of the music mute. 0..1.
+  const [musicVolume, setMusicVolume] = useState(() => {
+    try {
+      const v = parseFloat(window.localStorage.getItem('pob.musicVolume'));
+      return Number.isFinite(v) ? v : 1;
+    } catch { return 1; }
+  });
+  useEffect(() => {
+    setMusicVolumeApi(musicVolume);
+    try {
+      window.localStorage.setItem('pob.musicVolume', String(musicVolume));
+    } catch { /* noop */ }
+  }, [musicVolume]);
+
   // Narration controls — independent of the global SFX mute so the
   // player can hush the dealer while keeping the bells and lounge music.
   const [narrationMuted, setNarrationMuted] = useState(() => {
@@ -1198,7 +1213,7 @@ export default function App() {
           </h1>
           <div className="tagline">Bluff publicly. Prove privately.</div>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           <button
             onClick={() => { unlockAudio(); setMuted((m) => !m); }}
             title={muted ? 'Unmute lounge music' : 'Mute lounge music'}
@@ -1206,6 +1221,19 @@ export default function App() {
           >
             {muted ? '🔇' : '🎵'}
           </button>
+          <input
+            type="range"
+            className="volume-slider"
+            min="0"
+            max="1"
+            step="0.05"
+            value={musicVolume}
+            onChange={(e) => setMusicVolume(parseFloat(e.target.value))}
+            style={{ '--val': musicVolume }}
+            aria-label="Music volume"
+            title={`Music volume: ${Math.round(musicVolume * 100)}%`}
+            disabled={muted}
+          />
           {screen === 'game' && (
             <button onClick={handleMenu}>← Menu</button>
           )}

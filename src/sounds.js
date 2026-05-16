@@ -55,6 +55,15 @@ export function setMusicMuted(value) {
   setMuted(value);
 }
 
+// Music volume as a 0..1 multiplier on the music master bus. Stored
+// separately from the mute flag so toggling mute back on restores the
+// previous level. Default 1 = unchanged from the historic mix.
+let musicVolume = 1;
+export function setMusicVolume(value) {
+  musicVolume = Math.max(0, Math.min(1, Number(value) || 0));
+  if (musicMasterGain) musicMasterGain.gain.value = musicMuted ? 0 : musicVolume;
+}
+
 /** Future: an SFX-only mute (currently always on). Left here so we
  * can wire it up if we add a third toggle later. */
 export function setSfxMuted(value) {

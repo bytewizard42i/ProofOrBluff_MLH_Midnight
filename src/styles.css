@@ -1193,6 +1193,46 @@ button.active {
   cursor: not-allowed;
 }
 
+/* Slim accent slider used in the page header for music volume.
+ * Same visual language as the narration slider, just shorter so it
+ * sits next to the 🎵 button without crowding the menu button. */
+.volume-slider[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 80px;
+  height: 4px;
+  background: linear-gradient(
+    to right,
+    var(--gold) 0%,
+    var(--gold) calc(var(--val, 1) * 100%),
+    rgba(255, 255, 255, 0.15) calc(var(--val, 1) * 100%),
+    rgba(255, 255, 255, 0.15) 100%
+  );
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+.volume-slider[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: 1px solid #b88c00;
+  box-shadow: 0 0 6px rgba(255, 214, 10, 0.6);
+}
+.volume-slider[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: 1px solid #b88c00;
+}
+.volume-slider[type="range"]:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ────────── Log entries ──────────
  * Layout: small status icon + text. Each entry has a 3px left border
  * coloured by actor (player / ai / system) for at-a-glance attribution.
