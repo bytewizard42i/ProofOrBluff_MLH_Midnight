@@ -878,13 +878,13 @@ export default function App() {
     } catch { return 0.95; }
   });
   useEffect(() => {
-    // Speech is muted when EITHER the global mute or the narrator-only
-    // mute is on. setSpeechMuted(true) also cancels anything in flight.
-    setSpeechMuted(muted || narrationMuted);
+    // Narration is governed ONLY by the in-log narration toggle now —
+    // the top-right speaker icon controls music only.
+    setSpeechMuted(narrationMuted);
     try {
       window.localStorage.setItem('pob.narrationMuted', narrationMuted ? '1' : '0');
     } catch { /* noop */ }
-  }, [muted, narrationMuted]);
+  }, [narrationMuted]);
   useEffect(() => {
     setSpeechVolume(narrationVolume);
     try {
@@ -1174,10 +1174,10 @@ export default function App() {
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button
             onClick={() => { unlockAudio(); setMuted((m) => !m); }}
-            title={muted ? 'Unmute sound effects' : 'Mute sound effects'}
-            aria-label={muted ? 'Unmute' : 'Mute'}
+            title={muted ? 'Unmute lounge music' : 'Mute lounge music'}
+            aria-label={muted ? 'Unmute lounge music' : 'Mute lounge music'}
           >
-            {muted ? '🔇' : '🔊'}
+            {muted ? '🔇' : '🎵'}
           </button>
           {screen === 'game' && (
             <button onClick={handleMenu}>← Menu</button>

@@ -10,8 +10,13 @@
  */
 
 let ctx = null;
-let masterGain = null;
-let muted = false;
+// Two separate gain nodes so the player can mute the lounge music
+// without silencing the SFX (and vice versa). The top-right speaker
+// icon controls the MUSIC bus only; SFX stays on.
+let masterGain = null;     // SFX bus (one-shots: bells, fanfare, etc.)
+let musicMasterGain = null; // music bus (background loop)
+let musicMuted = false;
+let sfxMuted = false;
 
 function ensureCtx() {
   if (ctx) return ctx;
@@ -19,8 +24,11 @@ function ensureCtx() {
   if (!AC) return null;
   ctx = new AC();
   masterGain = ctx.createGain();
-  masterGain.gain.value = muted ? 0 : 0.35;
+  masterGain.gain.value = sfxMuted ? 0 : 0.35;
   masterGain.connect(ctx.destination);
+  musicMasterGain = ctx.createGain();
+  musicMasterGain.gain.value = musicMuted ? 0 : 1;
+  musicMasterGain.connect(ctx.destination);
   return ctx;
 }
 
@@ -31,13 +39,32 @@ export function unlockAudio() {
   if (c.state === 'suspended') c.resume();
 }
 
+/**
+ * Backwards-compatible mute toggle, NOW BOUND TO MUSIC ONLY.
+ * The top-right speaker icon in the page header drives this — per
+ * John's preference it should silence the lounge music while leaving
+ * the SFX (bells, fanfare, wah-wah) and the narrator alone.
+ */
 export function setMuted(value) {
-  muted = !!value;
-  if (masterGain) masterGain.gain.value = muted ? 0 : 0.35;
+  musicMuted = !!value;
+  if (musicMasterGain) musicMasterGain.gain.value = musicMuted ? 0 : 1;
+}
+
+/** Explicit alias for clarity at call sites that know what they're muting. */
+export function setMusicMuted(value) {
+  setMuted(value);
+}
+
+/** Future: an SFX-only mute (currently always on). Left here so we
+ * can wire it up if we add a third toggle later. */
+export function setSfxMuted(value) {
+  sfxMuted = !!value;
+  if (masterGain) masterGain.gain.value = sfxMuted ? 0 : 0.35;
 }
 
 export function isMuted() {
-  return muted;
+  // Mirrors the music mute (the only one currently surfaced in the UI).
+  return musicMuted;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -256,7 +283,10 @@ export function startBackgroundMusic() {
   if (!musicGain) {
     musicGain = c.createGain();
     musicGain.gain.value = 0.16; // very gentle
-    musicGain.connect(masterGain);
+    // Route through musicMasterGain (NOT masterGain) so the top-right
+    // speaker icon — which only mutes music — affects this loop while
+    // SFX (bells, fanfare, etc.) keep playing through their own bus.
+    musicGain.connect(musicMasterGain);
   }
 
   // ii–V–I–vi style progression in C minor-ish for a smoky feel:
