@@ -1,0 +1,65 @@
+Here is an extensive summary of the Midnight Hackathon Opening Ceremony, hosted by Major League Hacking (MLH) and the Midnight Foundation:
+Overview and Core Technology
+
+The event kicks off with an introduction to the Midnight Network, a blockchain designed to solve the privacy problems inherent in traditional Web3 spaces [06:24]. Lauren Lee, Director of Developer Relations at Midnight Foundation, outlines the core mental model for building on the network: unlike traditional blockchains where every transaction is public, Midnight allows public and private states to live within the same application, connected via Zero-Knowledge (ZK) proofs [10:16].
+
+This allows users to verify information without revealing the underlying personal data—a concept the team refers to as "share proof, not data." Smart contracts on Midnight are written in Compact, a language specifically designed to be easily adopted by TypeScript developers [11:01].
+Hackathon Tracks and Prizes
+
+The hackathon challenges participants to build applications that genuinely require data privacy across four main categories [12:56]:
+
+    DeFi (Decentralized Finance): Fixing privacy issues in trading, lending, and settlement by keeping rules public but hiding transaction histories, wallet balances, or trading strategies. (Prize: Portable USB Monitors).
+
+    Gaming: Designing games with verifiably fair hidden states (e.g., Battleship), anti-cheat mechanisms without surveillance, or private loot drops. (Prize: Wireless Mice).
+
+    AI: Creating tools that process sensitive user data locally or verify user eligibility without actually collecting or exposing the underlying identity/data. (Prize: Noise Cancelling Headphones).
+
+    Best Beginner Hack: Reserved for teams comprised of >50% first-time hackers, judged heavily on clear problem definition rather than pure technical sophistication. (Prize: Keychron Mechanical Keyboards).
+
+Additionally, the top two overall teams and track winners receive an invitation to Build Club, an 8-week accelerator program that helps turn hackathon concepts into viable businesses, culminating in a pitch to the Midnight investor network [20:03].
+Essential Advice for Hackers
+
+Lauren emphasizes a critical filter for all project ideas: "If I removed the privacy feature, would this product still make sense?" If the answer is yes, then the team should push harder until the answer is no—that is the sweet spot for a genuine Midnight application [16:21].
+
+Judging Criteria [18:54]
+Projects are evaluated on five pillars:
+
+    Problem definition
+
+    Technical execution
+
+    User experience
+
+    Reliability
+
+    Business viability: Judges emphasize that technically beautiful projects often lose if they cannot clearly explain why someone would pay for them and who the actual target user is.
+
+5 Tips to Save Time [16:46]
+
+    Start at the Midnight Developer Hub.
+
+    Follow the Hello World Guide (docs.midnight.network) to deploy your first contract.
+
+    Use the create-midnight-app CLI instead of scaffolding from scratch.
+
+    Set up AI tooling before coding (e.g., Midnight Network Expert for Claude or the Midnight MCP server) so that your coding assistant understands the new Compact syntax instead of hallucinating it [11:52].
+
+    Reference example repositories (like the Bboard/Bulletin Board) when stuck on syntax.
+
+Logistics and Submissions
+
+    Demo Submissions: Teams must submit a 2-minute demo video, a public code repository, and a written vision statement via Devpost by 11:45 AM ET on Sunday [31:08].
+
+    Team Requirements: Hackers can build solo, but you must be part of a team (2 to 5 members) to be eligible for prizes [39:34].
+
+    Code of Conduct: The event strictly enforces the MLH Code of Conduct, ensuring a safe and respectful environment for all developers.
+
+Q&A Highlights [36:02]
+
+During the live Q&A session, the MLH and Midnight staff clarified several technical and administrative points:
+
+    Deploying: Hackers are encouraged to build on the DevNet this weekend rather than the newly launched Mainnet. Test tokens can be acquired for free via the Midnight faucet [52:20].
+
+    AI Assistance: Participants are free to use any AI tools (Gemini, Claude, Copilot) as long as they integrate the proper Midnight MCPs or context skills available in the docs [46:04].
+
+    Completion Level: Projects do not need to be 100% complete. Teams are highly encouraged to submit strong Minimum Viable Products (MVPs) even if they run out of time to implement every intended feature [42:36].

@@ -1,0 +1,49 @@
+*Gatekeeper check passed: The user is requesting a factual summary. No user data will be utilized to fulfill this request.*
+
+Here is an extensive summary of the **"How to Build on Midnight Using AI"** workshop, presented by Tashar, a builder in the Midnight ecosystem:
+
+### **Workshop Premise and Core Concepts**
+
+Tashar begins by emphasizing that Zero-Knowledge Proofs (ZKPs) feel like magic until you understand the underlying mechanics [[05:44](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=344)]. The session aims to demonstrate how to build a full-stack, end-to-end Decentralized Application (DApp) on the Midnight network where a user's inputs are cryptographically private by default, and to do so entirely by relying on an AI agent to write the code [[04:14](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=254)].
+
+He breaks down the Midnight ecosystem using three key comparisons to Ethereum [[08:49](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=529)]:
+
+1. **Compact vs. Solidity:** Solidity executes logic on-chain (everyone re-executes the state change). Compact is a *circuit language*; the code generates a mathematical constraint. The chain simply checks if a proof satisfies the constraint—it never re-executes the function [[09:16](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=556)].
+2. **Night vs. Dust (Tokens):** Ethereum uses ETH for both value transfer and gas. Midnight splits this: **Night** is the native value token (private and shielded by default), while **Dust** is the gas token used to pay for transactions. Separating them prevents the gas payment from leaking privacy data. Dust can be freely regenerated from Night tokens [[14:42](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=882)].
+3. **Network Ladder:** Similar to Ethereum's environments, Midnight has three main tiers:
+* *Undeployed:* Local nodes spun up on a developer's machine.
+* *Preview:* A staging testnet for integration testing (resets periodically).
+* *Pre-Pro (Pre-Production):* A persistent, stable public testnet (similar to Sepolia) with a faucet. This is the network used during the workshop [[17:05](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=1025)].
+
+
+
+### **AI-Assisted Development Demonstration**
+
+Tashar sets out to build a simple "Counter App" with a Next.js frontend, a Compact smart contract, and integration with Midnight's 1 a.m. browser wallet [[10:43](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=643)].
+
+**The Tech Stack:**
+
+* **Contract:** Compact Language [[18:36](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=1116)].
+* **SDK:** `midnight-js` (runs the ZK prover locally in TypeScript).
+* **Wallet:** 1 a.m. Wallet (Midnight's MetaMask equivalent).
+
+**The AI Workflow:**
+
+1. Tashar initializes a Next.js application and installs the Midnight AI skills package using `npx skills add <repository>` [[11:12](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=672)].
+2. He uses "Open Code" (a free-tier AI coding assistant) and feeds it a simple prompt asking it to build a full-stack Midnight application using the installed skills [[12:43](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=763)].
+3. The AI generates the Compact contract (`counter.compact`), creating a ledger to hold the counter state and an `increment` circuit to add to the counter [[21:04](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=1264)].
+4. The AI also generates the Next.js frontend, which includes functions to check the contract, handle the wallet connection, handle deployment, and call the increment function [[24:27](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=1467)].
+
+### **Debugging and Deployment Walkthrough**
+
+During the live demonstration, Tashar encounters and explains common Midnight development errors:
+
+* **Coin Public Key Error:** A common issue where the app attempts to use an incorrect key type. Just like Solana has different account types, Midnight requires developers to interact with contracts using a specific "Coin Public Key" [[30:43](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=1843)].
+* **Transaction Syncing Delays:** After hitting "deploy" or "increment," the explorer might briefly show "Transaction Not Found." Tashar explains this is normal; ZK operations take 15–20 seconds to process mathematically and sync with the blockchain [[34:29](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=2069)].
+* **Wallet Pop-ups:** When deploying or incrementing, the 1 a.m. wallet prompts the user multiple times (first to generate the ZK proof locally, then to sign the transaction, and finally to submit it to the chain) [[36:51](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=2211)].
+
+### **Key Takeaways for Hackers**
+
+* **Do not panic over bugs:** Outages with RPCs, Docker container communication issues, or AI hallucinations are completely normal in early-stage Web3 development [[44:29](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=2669)].
+* **Dust Balance:** If your transaction fails 9 times out of 10, it is usually a Dust balance issue, not a code logic issue [[16:49](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=1009)].
+* **Leverage AI Skills:** The `npx skills` command can be used with Claude, Open Code, Copilot, or any other agent to feed it the specific syntax and constraints of Compact, saving massive amounts of time during a 48-hour hackathon [[41:50](https://www.youtube.com/watch?v=JFhIf0O6LoM&t=2510)].

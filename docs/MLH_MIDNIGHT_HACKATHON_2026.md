@@ -99,6 +99,52 @@ local Idris MCP, our own past hackathon repos).
 
 ---
 
+## Judging Criteria & Submission Requirements
+
+Pulled from the MLH × Midnight opening ceremony with Lauren Lee, Director of Developer Relations at Midnight Foundation (May 15, 2026). Full transcript at `docs/transcripts/2026-05-15_MLH_opening_ceremony_Lauren_Lee.txt`.
+
+### The Privacy Filter (most important content signal)
+
+Lauren's exact wording:
+
+> "If I removed the privacy feature, would this product still make sense? If the answer is yes, push harder until the answer is no. That is the sweet spot for a genuine Midnight application."
+
+**For Proof or Bluff this is already covered**: remove the ZK challenge resolution and the game collapses to "trust the opponent's reveal." There is no version of Proof or Bluff that works without selective-disclosure proofs. This is the line we lead the demo and the written vision with.
+
+### Five Judging Pillars
+
+1. **Problem definition** — Can you state in one sentence who this is for and what pain it removes?
+2. **Technical execution** — Does the privacy mechanism actually work, not just decoratively present?
+3. **User experience** — Can a non-cryptographer use it without a tutorial?
+4. **Reliability** — Does the demo flow run end-to-end without breaking?
+5. **Business viability** — Judges explicitly call out that "technically beautiful projects often lose if they cannot clearly explain why someone would pay for them and who the actual target user is." Our `docs/BUSINESS_PLAN.md` answers this; the written vision must echo it.
+
+### Submission Requirements
+
+| Item | Spec |
+|---|---|
+| **Demo video** | 2 minutes maximum |
+| **Code repo** | Public GitHub URL |
+| **Written vision** | Submitted via Devpost project page |
+| **Deadline** | Sunday May 17, 11:45 AM ET (note: this is hours **before** the 12:00 UTC Gimbalabs tweet deadline — work backward from the earlier of the two) |
+| **Team size** | Solo participation allowed but **prize eligibility requires teams of 2-5 members** |
+| **Network to build on** | **DevNet**, not Mainnet. Test tokens via the Midnight faucet. |
+| **AI tools** | Permitted as long as they integrate Midnight MCPs or AI Skills |
+
+### Five Time-Savers Lauren Recommended
+
+1. Start at the **Midnight Developer Hub**
+2. Follow the **Hello World Guide** on docs.midnight.network to deploy a first contract
+3. Use **`create-midnight-app`** CLI instead of scaffolding from scratch
+4. **Set up AI tooling before coding** — the Midnight Network Expert (Claude) and the Midnight MCP server feed the agent current Compact syntax instead of letting it hallucinate older patterns. *Note for us: we already have the Idris MCP at `/home/js/utils_Midnight-Idris-MCP` and the Midnight MCP wired into Cascade. This bullet is already checked.*
+5. Reference example repos (Bboard / Bulletin Board) when stuck on syntax
+
+### Build Club + Midnight Accelerator Path
+
+Top 2 overall teams **and** track winners receive a **Build Club** invitation (8-week accelerator), culminating in a pitch to the **Midnight investor network**. This is the prize-after-the-prize and the main reason to compete hard, even if we don't win the track-specific hardware.
+
+---
+
 ## Strategic Fit With Our Existing Projects
 
 We have **6 days** before kickoff. Here is the realistic option matrix:

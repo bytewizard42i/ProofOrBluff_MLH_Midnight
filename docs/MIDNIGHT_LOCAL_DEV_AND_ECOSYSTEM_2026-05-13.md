@@ -279,6 +279,76 @@ For Penny to execute (already in motion):
 
 ---
 
+## Section 6 — Tashar's "How to Build on Midnight Using AI" Workshop (May 15, 2026)
+
+Captured during the MLH × Midnight hackathon kickoff. Full transcript at `docs/transcripts/2026-05-15_How_to_Build_on_Midnight_Using_AI_Tashar.txt`. Speaker: Tashar, builder in the Midnight ecosystem.
+
+### Mental Model — Compact Is a Circuit Language, Not Solidity
+
+Solidity executes logic on-chain: every node re-runs the function and agrees on the resulting state. Compact compiles to a **mathematical constraint**; the chain only checks that a submitted proof satisfies the constraint. **The chain never re-executes the circuit.** This is why off-chain proof generation matters — the prover does the work locally, and the network only verifies.
+
+### Night vs Dust — Why the Two-Token Split Matters
+
+| Token | Role |
+|---|---|
+| **Night** | Native value token. Private and shielded by default. |
+| **Dust** | Gas token used to pay for transaction inclusion. |
+
+Ethereum collapses both roles into ETH, which means **the gas payment leaks balance information**. Midnight separates them so the public gas payment never reveals shielded value movements. **Dust is regenerated from Night** — players don't buy gas separately, they hold Night and Dust is produced from it.
+
+### Network Ladder
+
+| Tier | Purpose | Persistence | Faucet |
+|---|---|---|---|
+| **Undeployed** | Local nodes (this doc's tool) | Per session | N/A — use the funding CLI |
+| **Preview** | Staging testnet for integration testing | Resets periodically | Yes |
+| **Pre-Pro** (Pre-Production) | Stable persistent public testnet | Persistent | Yes |
+| **Mainnet** | Production | Persistent | No |
+
+Tashar built the workshop demo on **Pre-Pro**. For the MLH × Midnight 2026 hackathon, Lauren Lee recommended teams build on **DevNet** (the colloquial name encompassing Preview / Pre-Pro). **Avoid Mainnet during the hackathon**.
+
+### `npx skills add` — The AI Skills Pattern
+
+```bash
+npx skills add <repository>
+```
+
+Installs an AI Skills package that feeds the agent (Claude, Open Code, Copilot, etc.) current Compact syntax and ecosystem context. Tashar emphasizes this as the single biggest time-saver for AI-assisted Midnight development — without it, agents hallucinate older syntax patterns.
+
+**For our setup**: we already have the Midnight MCP wired into Cascade and the Idris MCP at `/home/js/utils_Midnight-Idris-MCP`. The `npx skills` pattern is the equivalent for hackers using other agents. Worth flagging in our hackathon mentoring docs.
+
+### Common Errors and the 9-of-10 Rule
+
+Three errors Tashar walked through live, plus one rule of thumb:
+
+1. **Coin Public Key Error.** Contracts require a specific "Coin Public Key" type rather than a generic wallet address (analogous to Solana's distinct account types). When a transaction silently fails to even start, this is usually why.
+
+2. **"Transaction Not Found" briefly in the explorer.** Normal. ZK operations take **15-20 seconds** to mathematically process and sync. Don't retry, don't panic, wait the window.
+
+3. **The 1AM wallet prompts three times per deploy.** First to generate the ZK proof locally, second to sign the transaction, third to submit it to chain. This is by design — judges who haven't seen it may flag it as a UX bug.
+
+4. **The 9-of-10 rule for transaction failures.** Tashar: *"If your transaction fails 9 times out of 10, it is usually a Dust balance issue, not a code logic issue."* When debugging, **check Dust balance first**, not the contract. The funding CLI's option [3] "Display master wallet balances" is the right reflex.
+
+### Stack Tashar Used
+
+| Layer | Tool |
+|---|---|
+| **Frontend** | Next.js |
+| **Contract** | Compact (compiled with `compactc`) |
+| **SDK** | `midnight-js` (runs the ZK prover locally in TypeScript) |
+| **Wallet** | 1AM Wallet (Midnight's MetaMask equivalent) |
+| **AI agent** | Open Code (free-tier coding assistant) |
+
+He used a single high-level prompt against the AI Skills package to scaffold the Compact contract + Next.js frontend + wallet integration end-to-end. The skills package is what made the prompt produce current syntax instead of hallucinated v0.4-era code.
+
+### Pull-Quote for Mentoring
+
+> "Outages with RPCs, Docker container communication issues, or AI hallucinations are completely normal in early-stage Web3 development."
+
+Useful to share with any first-time hacker who hits a wall during the 48-hour window.
+
+---
+
 ## Reference Links
 
 | Resource | URL |
