@@ -57,8 +57,30 @@ export async function buildWalletFromSeed({
   wallet.start();
 
   const initialState = await Rx.firstValueFrom(wallet.state());
-  const balance = initialState.balances?.[nativeToken()] ?? 0n;
   log.ok(`Wallet ready: ${initialState.address}`);
+  log.info('  Waiting for indexer sync (balance scan)…');
+
+  // The first emission is the cached/initial state and usually shows
+  // 0 balance even when funds exist on chain. Wait for the wallet to
+  // catch up to the chain tip OR for a non-zero balance to appear,
+  // whichever comes first. Bounded by a 90-second timeout.
+  const synced = await Rx.firstValueFrom(
+    wallet.state().pipe(
+      Rx.filter((s) => {
+        const synced = Number(s.syncProgress?.synced ?? 0);
+        const total = Number(s.syncProgress?.total ?? 0);
+        const balance = s.balances?.[nativeToken()] ?? 0n;
+        return (total > 0 && synced >= total) || balance > 0n;
+      }),
+      Rx.take(1),
+      Rx.timeout({ each: 90_000 }),
+    )
+  ).catch((err) => {
+    log.warn(`Sync wait timed out (${err.message}). Using last known state.`);
+    return initialState;
+  });
+
+  const balance = synced.balances?.[nativeToken()] ?? 0n;
   log.info(`  Native token balance: ${balance.toString()}`);
 
   // The browser's walletHandle has `.api` that holds the providers
