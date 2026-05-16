@@ -1074,14 +1074,93 @@ button.active {
 }
 
 .log-panel h4 {
-  margin: 0 0 0.65rem;
+  margin: 0;
   font-size: 0.75rem;
   letter-spacing: 0.25em;
   color: var(--violet);
   text-transform: uppercase;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
+}
+
+/* Title row above the entries: title on the left, mute toggle + volume
+ * slider on the right. The underline separator that used to live on the
+ * <h4> is moved to the row so it spans the full panel width. */
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-bottom: 0.65rem;
   padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.log-narration-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  justify-content: flex-end;
+  max-width: 200px;
+}
+
+.log-narration-controls .icon-btn {
+  background: rgba(157, 78, 221, 0.12);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.log-narration-controls .icon-btn:hover {
+  background: rgba(157, 78, 221, 0.25);
+  border-color: var(--violet);
+}
+.log-narration-controls .icon-btn.active {
+  background: rgba(214, 40, 40, 0.2);
+  border-color: var(--crimson);
+}
+
+/* Slim accent slider for the narration volume. */
+.log-narration-controls input[type="range"] {
+  flex: 1;
+  min-width: 70px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: linear-gradient(
+    to right,
+    var(--gold) 0%,
+    var(--gold) calc(var(--val, 0.95) * 100%),
+    rgba(255, 255, 255, 0.15) calc(var(--val, 0.95) * 100%),
+    rgba(255, 255, 255, 0.15) 100%
+  );
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+.log-narration-controls input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: 1px solid #b88c00;
+  box-shadow: 0 0 6px rgba(255, 214, 10, 0.6);
+}
+.log-narration-controls input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: 1px solid #b88c00;
+}
+.log-narration-controls input[type="range"]:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* ────────── Log entries ──────────

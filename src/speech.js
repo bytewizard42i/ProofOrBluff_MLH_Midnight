@@ -17,6 +17,7 @@
 
 let cachedVoice = null;
 let muted = false;
+let volume = 0.95; // 0..1, applied to every utterance
 const supported = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
 function chooseVoice() {
@@ -96,9 +97,16 @@ export function speak(text) {
   if (v) u.voice = v;
   u.rate = 1.06;   // slightly brisk for a casino dealer feel
   u.pitch = 1.05;
-  u.volume = 0.95;
+  u.volume = volume;
   window.speechSynthesis.speak(u);
 }
+
+/** Set narration volume (0..1). Applied to all future utterances. */
+export function setSpeechVolume(v) {
+  volume = Math.max(0, Math.min(1, Number(v) || 0));
+}
+
+export function getSpeechVolume() { return volume; }
 
 /** Flush every pending utterance immediately. */
 export function cancelSpeech() {

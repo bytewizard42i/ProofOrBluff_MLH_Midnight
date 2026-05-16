@@ -16,6 +16,7 @@ import {
   speak,
   cancelSpeech,
   setSpeechMuted,
+  setSpeechVolume,
   isSpeaking,
 } from './speech.js';
 import {
@@ -861,9 +862,35 @@ export default function App() {
   });
   useEffect(() => {
     setAudioMuted(muted);
-    setSpeechMuted(muted); // same toggle silences the narrator too
     try { window.localStorage.setItem('pob.muted', muted ? '1' : '0'); } catch { /* noop */ }
   }, [muted]);
+
+  // Narration controls — independent of the global SFX mute so the
+  // player can hush the dealer while keeping the bells and lounge music.
+  const [narrationMuted, setNarrationMuted] = useState(() => {
+    try { return window.localStorage.getItem('pob.narrationMuted') === '1'; }
+    catch { return false; }
+  });
+  const [narrationVolume, setNarrationVolume] = useState(() => {
+    try {
+      const v = parseFloat(window.localStorage.getItem('pob.narrationVolume'));
+      return Number.isFinite(v) ? v : 0.95;
+    } catch { return 0.95; }
+  });
+  useEffect(() => {
+    // Speech is muted when EITHER the global mute or the narrator-only
+    // mute is on. setSpeechMuted(true) also cancels anything in flight.
+    setSpeechMuted(muted || narrationMuted);
+    try {
+      window.localStorage.setItem('pob.narrationMuted', narrationMuted ? '1' : '0');
+    } catch { /* noop */ }
+  }, [muted, narrationMuted]);
+  useEffect(() => {
+    setSpeechVolume(narrationVolume);
+    try {
+      window.localStorage.setItem('pob.narrationVolume', String(narrationVolume));
+    } catch { /* noop */ }
+  }, [narrationVolume]);
 
   // Poll the TTS engine 5x/sec so we can gate the Ai turn until the
   // narrator finishes reading the previous outcome aloud.
@@ -1162,7 +1189,32 @@ export default function App() {
         <>
           <div className="play-area">
             <aside className="log-panel side">
-              <h4>Game Log</h4>
+              <div className="log-header">
+                <h4>Game Log</h4>
+                <div className="log-narration-controls" aria-label="Narration controls">
+                  <button
+                    type="button"
+                    className={`icon-btn ${narrationMuted ? 'active' : ''}`}
+                    onClick={() => setNarrationMuted((m) => !m)}
+                    title={narrationMuted ? 'Unmute narration' : 'Mute narration'}
+                    aria-label={narrationMuted ? 'Unmute narration' : 'Mute narration'}
+                  >
+                    {narrationMuted ? '🔇' : '🗣️'}
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={narrationVolume}
+                    onChange={(e) => setNarrationVolume(parseFloat(e.target.value))}
+                    style={{ '--val': narrationVolume }}
+                    aria-label="Narration volume"
+                    title={`Narration volume: ${Math.round(narrationVolume * 100)}%`}
+                    disabled={narrationMuted}
+                  />
+                </div>
+              </div>
               <div className="log-entries">
                 {visibleLogCount === 0 ? (
                   <div className="log-entry actor-system" style={{ fontStyle: 'italic' }}>
