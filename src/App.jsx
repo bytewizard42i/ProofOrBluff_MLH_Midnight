@@ -1,4 +1,14 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import {
+  unlockAudio,
+  setMuted as setAudioMuted,
+  playYouCaughtAi,
+  playYouGotCaught,
+  playYouSurvivedChallenge,
+  playYouMisCalled,
+  playGameWon,
+  playGameLost,
+} from './sounds.js';
 import {
   initGame,
   playCards,
@@ -763,6 +773,20 @@ export default function App() {
   // happened before the rank updates.
   const [displayedRank, setDisplayedRank] = useState(null);
 
+  // Audio mute state — persisted across visits via localStorage.
+  const [muted, setMuted] = useState(() => {
+    try { return window.localStorage.getItem('pob.muted') === '1'; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    setAudioMuted(muted);
+    try { window.localStorage.setItem('pob.muted', muted ? '1' : '0'); } catch { /* noop */ }
+  }, [muted]);
+
+  // Tracks the last log index we played a sound for, so each newly
+  // revealed entry triggers its outcome cue exactly once.
+  const lastSoundedRef = useRef(0);
+
   // ── Staggered log reveal ──
   // The engine pushes new entries onto state.log synchronously, but we want
   // the player to see them appear one at a time so each event has a beat
@@ -794,7 +818,38 @@ export default function App() {
     }
   }, [state, visibleLogCount, totalLogCount, displayedRank]);
 
+  // Play casino sound effects as outcome log entries reveal. We diff
+  // against the previous reveal count so each line plays at most once.
+  useEffect(() => {
+    if (!state) return;
+    while (lastSoundedRef.current < visibleLogCount) {
+      const entry = state.log[lastSoundedRef.current];
+      lastSoundedRef.current += 1;
+      if (!entry) continue;
+      // Bluffer caught: bluffer picks up the pile.
+      if (entry.startsWith('CAUGHT BLUFFING')) {
+        if (entry.includes('AI picks')) playYouCaughtAi();
+        else if (entry.includes('You pick')) playYouGotCaught();
+      } else if (entry.startsWith('CHALLENGE FAILED')) {
+        // Challenger was wrong.
+        if (entry.includes('AI picks')) playYouSurvivedChallenge();
+        else if (entry.includes('You pick')) playYouMisCalled();
+      } else if (entry.startsWith('YOU WIN')) {
+        playGameWon();
+      } else if (entry.startsWith('AI WINS')) {
+        playGameLost();
+      }
+    }
+  }, [visibleLogCount, state]);
+
+  // Reset the sound cursor when a new game begins.
+  useEffect(() => {
+    if (totalLogCount === 0) lastSoundedRef.current = 0;
+  }, [totalLogCount]);
+
   const handleStart = useCallback((cfg) => {
+    unlockAudio(); // user gesture — primes the AudioContext
+    lastSoundedRef.current = 0;
     setSettings(cfg);
     const fresh = initGame(cfg.mode);
     setState(fresh);
@@ -891,9 +946,18 @@ export default function App() {
           </h1>
           <div className="tagline">Bluff in public. Prove in private.</div>
         </div>
-        {screen === 'game' && (
-          <button onClick={handleMenu}>← Menu</button>
-        )}
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            onClick={() => { unlockAudio(); setMuted((m) => !m); }}
+            title={muted ? 'Unmute sound effects' : 'Mute sound effects'}
+            aria-label={muted ? 'Unmute' : 'Mute'}
+          >
+            {muted ? '🔇' : '🔊'}
+          </button>
+          {screen === 'game' && (
+            <button onClick={handleMenu}>← Menu</button>
+          )}
+        </div>
       </header>
 
       {showTutorial && <Tutorial onClose={dismissTutorial} />}
