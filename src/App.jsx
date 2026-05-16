@@ -453,6 +453,75 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
 // tutorial at least once, so we don't pop it up every visit.
 const TUTORIAL_KEY = 'pob.tutorialSeen.v1';
 
+// How long each new log line stays as "the latest" before the next one
+// is revealed. Gives the reader a beat to absorb each event.
+const LOG_REVEAL_INTERVAL_MS = 1300;
+
+/**
+ * Classify a raw log string into a structured display entry:
+ *   - actor:  'player' | 'ai' | 'system'
+ *   - kind:   'info' | 'play' | 'accept' | 'win-good' | 'win-bad' | 'warn'
+ *   - icon:   emoji glyph
+ *   - text:   the original message
+ *
+ * "win-good" / "win-bad" are framed from the player's perspective so the
+ * green/red coloring tracks "did the player benefit from this event."
+ */
+function classifyLog(text) {
+  if (text.startsWith('⚠️')) return { actor: 'system', kind: 'warn', icon: '⚠️', text };
+
+  // Win / lose
+  if (text.startsWith('YOU WIN')) return { actor: 'player', kind: 'win-good', icon: '🏆', text };
+  if (text.startsWith('AI WINS')) return { actor: 'ai', kind: 'win-bad', icon: '💀', text };
+
+  // Bluffer caught (CAUGHT BLUFFING) — bluffer picks up the pile.
+  // "You pick" => player bluffed and got caught (BAD for player).
+  // "AI picks" => AI bluffed and got caught (GOOD for player).
+  if (text.startsWith('CAUGHT BLUFFING')) {
+    if (text.includes('You pick')) {
+      return { actor: 'player', kind: 'win-bad', icon: '🔴', text };
+    }
+    return { actor: 'ai', kind: 'win-good', icon: '🟢', text };
+  }
+
+  // Challenge failed — claim was true, challenger picks up.
+  // "You pick" => player challenged a true claim (BAD for player).
+  // "AI picks" => AI challenged your honest claim (GOOD for player).
+  if (text.startsWith('CHALLENGE FAILED')) {
+    if (text.includes('You pick')) {
+      return { actor: 'player', kind: 'win-bad', icon: '🔴', text };
+    }
+    return { actor: 'ai', kind: 'win-good', icon: '🟢', text };
+  }
+
+  // Plays and accepts — actor extracted from the leading word.
+  if (text.startsWith('You played')) return { actor: 'player', kind: 'play', icon: '🎴', text };
+  if (text.startsWith('AI played')) return { actor: 'ai', kind: 'play', icon: '🃏', text };
+  if (text.startsWith('You accepted')) return { actor: 'player', kind: 'accept', icon: '✅', text };
+  if (text.startsWith('AI accepted')) return { actor: 'ai', kind: 'accept', icon: '✅', text };
+
+  return { actor: 'system', kind: 'info', icon: '·', text };
+}
+
+/**
+ * Render a single classified log entry.
+ */
+function LogEntry({ entry, isNewest }) {
+  const { actor, kind, icon, text } = entry;
+  const className = [
+    'log-entry',
+    `actor-${actor}`,
+    `kind-${kind}`,
+    isNewest ? 'newest' : '',
+  ].filter(Boolean).join(' ');
+  return (
+    <div className={className}>
+      <span className="log-icon" aria-hidden="true">{icon}</span>
+      <span className="log-text">{text}</span>
+    </div>
+  );
+}
+
 export default function App() {
   const [screen, setScreen] = useState('menu'); // 'menu' | 'game'
   const [settings, setSettings] = useState({ mode: 'home', difficulty: 'medium' });
@@ -476,6 +545,27 @@ export default function App() {
       /* localStorage unavailable — just don't persist */
     }
   }, []);
+
+  // ── Staggered log reveal ──
+  // The engine pushes new entries onto state.log synchronously, but we want
+  // the player to see them appear one at a time so each event has a beat
+  // to be read. We track how many entries are currently "visible" and
+  // advance one per LOG_REVEAL_INTERVAL_MS until caught up.
+  const [visibleLogCount, setVisibleLogCount] = useState(0);
+  const totalLogCount = state?.log?.length ?? 0;
+
+  useEffect(() => {
+    if (visibleLogCount >= totalLogCount) return;
+    const t = setTimeout(() => {
+      setVisibleLogCount((n) => Math.min(n + 1, totalLogCount));
+    }, LOG_REVEAL_INTERVAL_MS);
+    return () => clearTimeout(t);
+  }, [visibleLogCount, totalLogCount]);
+
+  // Reset visible count whenever a brand-new game starts.
+  useEffect(() => {
+    if (totalLogCount === 0) setVisibleLogCount(0);
+  }, [totalLogCount]);
 
   const handleStart = useCallback((cfg) => {
     setSettings(cfg);
@@ -578,6 +668,25 @@ export default function App() {
       {screen === 'game' && state && (
         <>
           <div className="play-area">
+            <aside className="log-panel side">
+              <h4>Game Log</h4>
+              <div className="log-entries">
+                {visibleLogCount === 0 ? (
+                  <div className="log-entry actor-system" style={{ fontStyle: 'italic' }}>
+                    <span className="log-icon">·</span>
+                    <span className="log-text">Events will appear here as the round unfolds.</span>
+                  </div>
+                ) : (
+                  state.log
+                    .slice(0, visibleLogCount)
+                    .map((raw, idx, arr) => ({ raw, idx, isNewest: idx === arr.length - 1 }))
+                    .reverse()
+                    .map(({ raw, idx, isNewest }) => (
+                      <LogEntry key={idx} entry={classifyLog(raw)} isNewest={isNewest} />
+                    ))
+                )}
+              </div>
+            </aside>
             <GameTable
               state={state}
               settings={settings}
@@ -585,20 +694,6 @@ export default function App() {
               aiDialogue={aiDialogue}
               setAiDialogue={setAiDialogue}
             />
-            <aside className="log-panel side">
-              <h4>Game Log</h4>
-              <div className="log-entries">
-                {state.log.length === 0 ? (
-                  <div className="log-entry" style={{ fontStyle: 'italic' }}>
-                    Events will appear here as the round unfolds.
-                  </div>
-                ) : (
-                  [...state.log].reverse().map((entry, i) => (
-                    <div key={state.log.length - i} className="log-entry">{entry}</div>
-                  ))
-                )}
-              </div>
-            </aside>
           </div>
           {state.status === 'gameover' && (
             <ResultOverlay

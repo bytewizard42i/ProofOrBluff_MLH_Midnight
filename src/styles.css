@@ -229,10 +229,11 @@ button.active {
 .play-area {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
+  /* Log on the LEFT (560px), game table on the right (fills remaining). */
+  grid-template-columns: 560px minmax(0, 1fr);
   gap: 1rem;
   padding: 1rem;
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 0 auto;
   width: 100%;
   align-items: stretch;
@@ -566,41 +567,140 @@ button.active {
 .log-panel.side {
   position: sticky;
   top: 1rem;
-  align-self: start;
-  max-height: calc(100vh - 8rem);
-  backdrop-filter: blur(4px);
+  align-self: stretch; /* match the height of the .table next door */
+  max-height: calc(100vh - 6rem);
+  backdrop-filter: blur(6px);
 }
 
 .log-panel .log-entries {
   overflow-y: auto;
   flex: 1;
   min-height: 0;
-  padding-right: 0.25rem;
+  padding-right: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .log-panel h4 {
-  margin: 0 0 0.5rem;
-  font-size: 0.7rem;
-  letter-spacing: 0.2em;
+  margin: 0 0 0.65rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.25em;
   color: var(--violet);
   text-transform: uppercase;
   flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
 }
 
+/* ────────── Log entries ──────────
+ * Layout: small status icon + text. Each entry has a 3px left border
+ * coloured by actor (player / ai / system) for at-a-glance attribution.
+ * Outcome kinds (win-good / win-bad) overlay a tinted background so green
+ * = good for you, red = bad for you regardless of who acted.
+ */
 .log-entry {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 0.55rem;
+  align-items: start;
   color: var(--text-dim);
-  padding: 0.3rem 0;
-  border-bottom: 1px dotted rgba(255, 255, 255, 0.05);
-  line-height: 1.4;
+  padding: 0.55rem 0.7rem;
+  line-height: 1.45;
+  border-radius: 6px;
+  border-left: 3px solid transparent;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 0.88rem;
+  /* New entries slide in from above so the feed feels alive. */
+  animation: log-in 0.45s ease-out both;
 }
 
-.log-panel .log-entries .log-entry:first-child {
+@keyframes log-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+    background: rgba(255, 214, 10, 0.18);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    background: rgba(255, 255, 255, 0.02);
+  }
+}
+
+.log-icon {
+  font-size: 1.05rem;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.log-text {
+  word-break: break-word;
+}
+
+/* Actor accent: left border + slight tint */
+.log-entry.actor-player {
+  border-left-color: #5ea8ff;
+  background: rgba(94, 168, 255, 0.06);
+}
+
+.log-entry.actor-ai {
+  border-left-color: var(--violet);
+  background: rgba(157, 78, 221, 0.07);
+}
+
+.log-entry.actor-system {
+  border-left-color: var(--text-dim);
+}
+
+/* Outcome shading (player POV): green = good for you, red = bad for you. */
+.log-entry.kind-win-good {
+  background: linear-gradient(90deg, rgba(46, 204, 113, 0.22), rgba(46, 204, 113, 0.04));
+  border-left-color: #2ecc71;
+  color: #d4f5e2;
+}
+
+.log-entry.kind-win-bad {
+  background: linear-gradient(90deg, rgba(214, 40, 40, 0.22), rgba(214, 40, 40, 0.04));
+  border-left-color: var(--crimson);
+  color: #f5d4d4;
+}
+
+.log-entry.kind-warn {
+  border-left-color: var(--gold);
   color: var(--gold);
-  font-weight: 500;
 }
 
-.log-entry:last-child {
-  border-bottom: none;
+/* Newest entry: brighter, glowing, pulsing for a beat. */
+.log-entry.newest {
+  color: var(--text);
+  font-weight: 500;
+  box-shadow:
+    0 0 0 1px var(--gold),
+    0 0 18px rgba(255, 214, 10, 0.25);
+  background: linear-gradient(90deg, rgba(255, 214, 10, 0.18), rgba(255, 214, 10, 0.04));
+  animation: log-in 0.45s ease-out both, log-pulse 1.6s ease-out 0.45s 1;
+}
+
+.log-entry.newest.kind-win-good {
+  background: linear-gradient(90deg, rgba(46, 204, 113, 0.4), rgba(46, 204, 113, 0.1));
+  box-shadow:
+    0 0 0 1px #2ecc71,
+    0 0 22px rgba(46, 204, 113, 0.45);
+  color: #fff;
+}
+
+.log-entry.newest.kind-win-bad {
+  background: linear-gradient(90deg, rgba(214, 40, 40, 0.4), rgba(214, 40, 40, 0.1));
+  box-shadow:
+    0 0 0 1px var(--crimson),
+    0 0 22px rgba(214, 40, 40, 0.5);
+  color: #fff;
+}
+
+@keyframes log-pulse {
+  0% { box-shadow: 0 0 0 1px var(--gold), 0 0 28px rgba(255, 214, 10, 0.45); }
+  100% { box-shadow: 0 0 0 1px var(--gold), 0 0 18px rgba(255, 214, 10, 0.25); }
 }
 
 /* ────────── Tutorial / How-to-play overlay ────────── */
@@ -737,13 +837,17 @@ button.active {
 
 /* ────────── Responsive ────────── */
 /* Stack log below table on narrow viewports. */
-@media (max-width: 1000px) {
+@media (max-width: 1100px) {
   .play-area {
     grid-template-columns: 1fr;
   }
   .log-panel.side {
     position: static;
-    max-height: 180px;
+    max-height: 220px;
+    order: 2; /* on narrow viewports, table first, log below */
+  }
+  .table {
+    order: 1;
   }
 }
 
