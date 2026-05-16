@@ -1113,6 +1113,10 @@ export default function App() {
         });
         setAiDialogue(decision.dialogue);
         if (decision.shouldChallenge) {
+          // Announce the challenge BEFORE committing it, so the dealer
+          // says "the Ai is challenging your claim" first and the
+          // outcome lines stream in behind it.
+          speak('The Ai is challenging your claim.');
           const result = challenge(state);
           // Give the Ai a follow-up reaction after the resolution
           setTimeout(() => {
