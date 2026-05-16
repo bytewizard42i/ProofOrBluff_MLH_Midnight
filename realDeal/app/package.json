@@ -1,0 +1,39 @@
+{
+  "name": "proof-or-bluff-realdeal",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Proof or Bluff — realDeal mode. Midnight-backed PvP bluffing card game with on-chain Zswap escrow and ZK challenge resolution.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 3016",
+    "start": "vite --port 3016",
+    "compile": "../../scripts/compile-contract.sh",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@midnight-ntwrk/compact-runtime": "0.16.0",
+    "@midnight-ntwrk/ledger": "4.0.0",
+    "@midnight-ntwrk/onchain-runtime": "0.3.0",
+    "@midnight-ntwrk/zswap": "4.0.0",
+    "@midnight-ntwrk/midnight-js-contracts": "4.0.4",
+    "@midnight-ntwrk/midnight-js-fetch-zk-config-provider": "4.0.4",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.0.4",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.0.4",
+    "@midnight-ntwrk/midnight-js-network-id": "4.0.4",
+    "@midnight-ntwrk/midnight-js-utils": "4.0.4",
+    "@midnight-ntwrk/midnight-js-types": "4.0.4",
+    "@midnight-ntwrk/dapp-connector-api": "4.0.1",
+    "@midnight-ntwrk/wallet-api": "5.0.0",
+    "@midnight-ntwrk/wallet-sdk-address-format": "3.1.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.9"
+  },
+  "_versionNotes": "SDK pins follow the May 2026 local-dev compatibility matrix in docs/MIDNIGHT_LOCAL_DEV_AND_ECOSYSTEM_2026-05-13.md. Adjust if compactc / node / indexer versions change."
+}

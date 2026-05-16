@@ -71,11 +71,11 @@
 //     off-chain check before calling `joinMatch`.
 //
 // COMPILER
-//   - compactc v0.30.0, language pragma >= 0.16 && <= 0.21
-//   - Validated on the hosted Compact playground (skipZk mode).
+//   - compactc v0.31.0, language pragma >= 0.16 && <= 0.23
+//   - Validated locally with `compactc --skip-zk`.
 // ============================================================================
 
-pragma language_version >= 0.16 && <= 0.21;
+pragma language_version >= 0.16 && <= 0.23;
 
 import CompactStandardLibrary;
 
