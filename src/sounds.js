@@ -179,6 +179,20 @@ export function playFunny() {
   tone({ type: 'sine',     freq: 640, freqEnd: 2400, t0: 0, dur: 0.45, gain: 0.12 });
 }
 
+/** Tiny ascending two-tone blip when a card is SELECTED. ~80ms. */
+export function playPickClick() {
+  if (!ensureCtx()) return;
+  tone({ type: 'triangle', freq: 660,  freqEnd: 990,  t0: 0,    dur: 0.06, gain: 0.22, gainEnd: 0.18 });
+  tone({ type: 'sine',     freq: 1320, freqEnd: 1980, t0: 0.02, dur: 0.05, gain: 0.10, gainEnd: 0.05 });
+}
+
+/** Tiny descending two-tone blip when a card is DESELECTED. ~80ms. */
+export function playUnpickClick() {
+  if (!ensureCtx()) return;
+  tone({ type: 'triangle', freq: 990,  freqEnd: 660,  t0: 0,    dur: 0.06, gain: 0.22, gainEnd: 0.18 });
+  tone({ type: 'sine',     freq: 1980, freqEnd: 1320, t0: 0.02, dur: 0.05, gain: 0.10, gainEnd: 0.05 });
+}
+
 /** Brass-style triumphant fanfare. Two ascending arpeggios in C, finishing
  *  on a held C major chord. Used when the player catches the Ai bluffing. */
 export function playFanfare() {

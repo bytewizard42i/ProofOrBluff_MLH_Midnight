@@ -9,6 +9,8 @@ import {
   playGameWon,
   playGameLost,
   playSubmitClick,
+  playPickClick,
+  playUnpickClick,
   startBackgroundMusic,
   stopBackgroundMusic,
 } from './sounds.js';
@@ -530,8 +532,13 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
   function toggleCard(card) {
     if (!playerCanPlay) return;
     const next = new Set(selectedIds);
-    if (next.has(card.id)) next.delete(card.id);
-    else if (next.size < 4) next.add(card.id);
+    if (next.has(card.id)) {
+      next.delete(card.id);
+      playUnpickClick();
+    } else if (next.size < 4) {
+      next.add(card.id);
+      playPickClick();
+    }
     setSelectedIds(next);
     // Auto-adjust claimed count to match selected (player can still override)
     if (next.size > 0 && claimedCount > next.size) {
