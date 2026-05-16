@@ -240,10 +240,12 @@ button.active {
 .play-area {
   flex: 1;
   display: grid;
-  /* Log on the LEFT (560px), game table on the right (fills remaining). */
-  grid-template-columns: 560px minmax(0, 1fr);
-  gap: 1rem;
-  padding: 1rem;
+  /* Log on the LEFT (slimmer now to give the play field more breathing
+   * room), game table on the right fills the rest. Reduced left/right
+   * padding so the log hugs the viewport edge. */
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: 1.25rem;
+  padding: 1rem 1.25rem 1rem 0.75rem;
   max-width: 1600px;
   margin: 0 auto;
   width: 100%;
