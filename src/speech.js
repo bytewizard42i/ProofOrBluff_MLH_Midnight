@@ -75,11 +75,11 @@ function cleanForSpeech(text) {
   return text
     // Drop stray emoji / pictographs.
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
-    // Pronunciation fix: most TTS voices mangle "AI" / "Ai" — they
-    // either read it as the word "ai" (rhymes with "eye") or skip it
-    // entirely. Spelling it as "A, I" with a comma gives the prosody
-    // engine a brief pause so it lands as two distinct letters.
-    .replace(/\b(AI|Ai)\b/g, 'A, I')
+    // Pronunciation fix for "AI" / "Ai". Most TTS voices read these
+    // tokens as the word 'ai' (rhymes with 'eye'). Hyphen between the
+    // two letters reliably triggers spell-out behaviour in most
+    // engines so the voice reads it as "A-I".
+    .replace(/\b(AI|Ai)\b/g, 'A-I')
     // Collapse multiple spaces left after substitutions.
     .replace(/\s{2,}/g, ' ')
     .trim();
