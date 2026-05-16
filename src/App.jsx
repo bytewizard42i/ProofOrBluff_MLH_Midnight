@@ -388,7 +388,7 @@ function ResultOverlay({ winner, onRematch, onMenu }) {
 // Game Table
 // ─────────────────────────────────────────────────────────────
 
-function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
+function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displayedRank }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [claimedCount, setClaimedCount] = useState(1);
   // IDs of cards currently mid-toss-animation. Held in local state so the
@@ -504,7 +504,7 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
           <span className="required-label">How many</span>
           <span className="rank-display">
             <span className="rank-glow" aria-hidden="true" />
-            <span className="rank">{state.currentRank}</span>
+            <span className="rank">{displayedRank ?? state.currentRank}</span>
           </span>
         </div>
 
@@ -705,6 +705,11 @@ export default function App() {
     }
   }, []);
 
+  // Rank shown to the player. Lags state.currentRank until the log has
+  // finished revealing every queued entry, so the player can read what
+  // happened before the rank updates.
+  const [displayedRank, setDisplayedRank] = useState(null);
+
   // ── Staggered log reveal ──
   // The engine pushes new entries onto state.log synchronously, but we want
   // the player to see them appear one at a time so each event has a beat
@@ -726,16 +731,30 @@ export default function App() {
     if (totalLogCount === 0) setVisibleLogCount(0);
   }, [totalLogCount]);
 
+  // Sync the displayed rank to the live rank, but only once the log has
+  // finished revealing all queued entries. This way the rank doesn't visibly
+  // change until the player has had a chance to read what happened.
+  useEffect(() => {
+    if (!state) return;
+    if (visibleLogCount >= totalLogCount && state.currentRank !== displayedRank) {
+      setDisplayedRank(state.currentRank);
+    }
+  }, [state, visibleLogCount, totalLogCount, displayedRank]);
+
   const handleStart = useCallback((cfg) => {
     setSettings(cfg);
     const fresh = initGame(cfg.mode);
     setState(fresh);
+    setDisplayedRank(fresh.currentRank);
+    setVisibleLogCount(0);
     setScreen('game');
     setAiDialogue('');
   }, []);
 
   const handleRematch = useCallback(() => {
     const fresh = initGame(settings.mode);
+    setDisplayedRank(fresh.currentRank);
+    setVisibleLogCount(0);
     setState(fresh);
     setAiDialogue('');
   }, [settings.mode]);
@@ -852,6 +871,7 @@ export default function App() {
               onUpdate={setState}
               aiDialogue={aiDialogue}
               setAiDialogue={setAiDialogue}
+              displayedRank={displayedRank}
             />
           </div>
           {state.status === 'gameover' && (

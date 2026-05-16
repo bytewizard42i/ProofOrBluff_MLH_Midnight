@@ -289,11 +289,12 @@ button.active {
 }
 
 .score-label {
-  font-size: 0.7rem;
-  letter-spacing: 0.2em;
+  font-size: 1rem;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-dim);
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.35rem;
+  font-weight: 700;
 }
 
 .score-cell.ai .score-label { color: var(--violet); }
@@ -301,11 +302,11 @@ button.active {
 
 .score-number {
   font-family: 'Cinzel', serif;
-  font-size: 3rem;
-  font-weight: 700;
+  font-size: 4.6rem;
+  font-weight: 800;
   line-height: 1;
   color: var(--text);
-  text-shadow: 0 0 20px currentColor;
+  text-shadow: 0 0 22px currentColor, 0 0 6px currentColor;
 }
 
 .score-cell.ai .score-number { color: var(--violet); }
@@ -431,9 +432,11 @@ button.active {
 .ai-dialogue {
   font-style: italic;
   color: var(--text);
-  font-size: 1.05rem;
-  min-height: 2.4em;
+  font-size: 1.35rem;
   line-height: 1.4;
+  font-family: 'Cinzel', serif;
+  letter-spacing: 0.01em;
+  text-shadow: 0 0 14px rgba(157, 78, 221, 0.45);
 }
 
 .ai-meta {
@@ -519,6 +522,12 @@ button.active {
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+  /* Thin dark stroke painted BEHIND the gradient fill so the letter
+   * stays readable against the glowing halo. paint-order ensures the
+   * stroke is rendered first, then the gradient fill on top.
+   */
+  -webkit-text-stroke: 2px rgba(10, 10, 18, 0.95);
+  paint-order: stroke fill;
   /* Halo / depth */
   filter:
     drop-shadow(0 0 12px rgba(255, 214, 10, 0.8))
