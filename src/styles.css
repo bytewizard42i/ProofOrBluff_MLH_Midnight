@@ -50,7 +50,7 @@ body::before {
   z-index: -2;
   background:
     url('/pob-bg.png') center/cover no-repeat fixed;
-  opacity: 0.42;
+  opacity: 0.28;
   filter: saturate(1.1) contrast(1.05);
 }
 
@@ -750,7 +750,9 @@ button.active {
   border-radius: 8px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.35rem;
   padding: 0.5rem 0.4rem;
   cursor: pointer;
   box-shadow: var(--shadow);
@@ -852,10 +854,6 @@ button.active {
   font-size: 1rem;
   line-height: 1;
   font-weight: 700;
-}
-
-.card .corner.bottom {
-  transform: rotate(180deg);
 }
 
 .card .suit-large {

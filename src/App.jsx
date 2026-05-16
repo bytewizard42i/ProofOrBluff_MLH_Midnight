@@ -103,10 +103,6 @@ function PlayingCard({ card, selected, onClick, disabled, pairColor, tossing }) 
         <span>{glyph}</span>
       </div>
       <div className="suit-large">{glyph}</div>
-      <div className="corner bottom">
-        <span>{card.rank}</span>
-        <span>{glyph}</span>
-      </div>
     </div>
   );
 }
@@ -916,6 +912,10 @@ export default function App() {
   useEffect(() => {
     if (!state || state.status !== 'playing') return;
     if (state.turn !== 'ai') return;
+    // Hold off on Ai's next action until every queued log entry has
+    // finished revealing. This way the player sees the outcome of the
+    // previous play before the next hand starts.
+    if (visibleLogCount < totalLogCount) return;
 
     // Case A: Ai must decide accept/challenge of player's claim.
     // Variable delay 0.25–3.0s simulates instinct / deliberation.
@@ -974,7 +974,7 @@ export default function App() {
       }, delay);
       return () => clearTimeout(t);
     }
-  }, [state, settings.difficulty, settings.mode]);
+  }, [state, settings.difficulty, settings.mode, visibleLogCount, totalLogCount]);
 
   return (
     <div className="app">
@@ -983,7 +983,7 @@ export default function App() {
           <h1>
             Proof or Bluff <span className="badge">MLH × Midnight</span>
           </h1>
-          <div className="tagline">Bluff in public. Prove in private.</div>
+          <div className="tagline">Bluff publicly. Prove privately.</div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button
