@@ -223,15 +223,27 @@ button.active {
 }
 
 /* ────────── Game Table ────────── */
-.table {
+/* Two-pane layout: game table on the left, log panel on the right.
+ * Sized to fit a typical viewport without scrolling on desktop.
+ */
+.play-area {
   flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 1rem;
+  padding: 1rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.table {
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 1rem;
-  padding: 1rem;
-  max-width: 1100px;
-  margin: 0 auto;
-  width: 100%;
+  min-width: 0;
 }
 
 .ai-area,
@@ -540,32 +552,54 @@ button.active {
 
 /* ────────── Game log ────────── */
 .log-panel {
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.45);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 0.75rem 1rem;
-  max-height: 140px;
-  overflow-y: auto;
+  padding: 0.85rem 1rem;
   font-size: 0.85rem;
   font-family: 'Inter', monospace;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.log-panel.side {
+  position: sticky;
+  top: 1rem;
+  align-self: start;
+  max-height: calc(100vh - 8rem);
+  backdrop-filter: blur(4px);
+}
+
+.log-panel .log-entries {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding-right: 0.25rem;
 }
 
 .log-panel h4 {
-  margin: 0 0 0.4rem;
+  margin: 0 0 0.5rem;
   font-size: 0.7rem;
   letter-spacing: 0.2em;
   color: var(--violet);
   text-transform: uppercase;
+  flex-shrink: 0;
 }
 
 .log-entry {
   color: var(--text-dim);
-  padding: 0.15rem 0;
+  padding: 0.3rem 0;
   border-bottom: 1px dotted rgba(255, 255, 255, 0.05);
+  line-height: 1.4;
+}
+
+.log-panel .log-entries .log-entry:first-child {
+  color: var(--gold);
+  font-weight: 500;
 }
 
 .log-entry:last-child {
-  color: var(--text);
   border-bottom: none;
 }
 
@@ -702,6 +736,17 @@ button.active {
 }
 
 /* ────────── Responsive ────────── */
+/* Stack log below table on narrow viewports. */
+@media (max-width: 1000px) {
+  .play-area {
+    grid-template-columns: 1fr;
+  }
+  .log-panel.side {
+    position: static;
+    max-height: 180px;
+  }
+}
+
 @media (max-width: 700px) {
   .header {
     flex-direction: column;

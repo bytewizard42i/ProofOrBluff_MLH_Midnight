@@ -401,7 +401,7 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
               ✅ Accept
             </button>
             <button className="danger" onClick={handleChallenge}>
-              🎲 Proof or Bluff!
+              🎲 Prove it!
             </button>
           </div>
         )}
@@ -577,18 +577,28 @@ export default function App() {
       )}
       {screen === 'game' && state && (
         <>
-          <GameTable
-            state={state}
-            settings={settings}
-            onUpdate={setState}
-            aiDialogue={aiDialogue}
-            setAiDialogue={setAiDialogue}
-          />
-          <div className="log-panel" style={{ maxWidth: 1100, margin: '0 auto 1rem', width: 'calc(100% - 2rem)' }}>
-            <h4>Game Log</h4>
-            {state.log.slice(-6).map((entry, i) => (
-              <div key={i} className="log-entry">{entry}</div>
-            ))}
+          <div className="play-area">
+            <GameTable
+              state={state}
+              settings={settings}
+              onUpdate={setState}
+              aiDialogue={aiDialogue}
+              setAiDialogue={setAiDialogue}
+            />
+            <aside className="log-panel side">
+              <h4>Game Log</h4>
+              <div className="log-entries">
+                {state.log.length === 0 ? (
+                  <div className="log-entry" style={{ fontStyle: 'italic' }}>
+                    Events will appear here as the round unfolds.
+                  </div>
+                ) : (
+                  [...state.log].reverse().map((entry, i) => (
+                    <div key={state.log.length - i} className="log-entry">{entry}</div>
+                  ))
+                )}
+              </div>
+            </aside>
           </div>
           {state.status === 'gameover' && (
             <ResultOverlay
