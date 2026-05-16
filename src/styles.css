@@ -50,7 +50,7 @@ body::before {
   z-index: -2;
   background:
     url('/pob-bg.png') center/cover no-repeat fixed;
-  opacity: 0.28;
+  opacity: 0.18;
   filter: saturate(1.1) contrast(1.05);
 }
 
