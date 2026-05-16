@@ -105,6 +105,56 @@ function CardBack({ label = 'POB' }) {
   return <div className="card-back">{label}</div>;
 }
 
+/**
+ * Big animated green arrow that flips between pointing UP (Ai's turn) and
+ * DOWN (your turn). Sits to the left of the "How many" rank so it's the
+ * first thing you see at a glance.
+ */
+function TurnArrow({ direction }) {
+  return (
+    <div className={`turn-arrow ${direction}`} aria-label={direction === 'down' ? 'Your turn' : "Ai's turn"}>
+      <svg viewBox="0 0 64 80" xmlns="http://www.w3.org/2000/svg">
+        {/* Shaft + arrowhead. The shape is drawn pointing DOWN; we rotate
+            via CSS for the UP variant so both share one path. */}
+        <path
+          d="M24 4 H40 V44 H56 L32 76 L8 44 H24 Z"
+          fill="currentColor"
+          stroke="rgba(0,0,0,0.55)"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <span className="turn-label">{direction === 'down' ? 'Your turn' : "Ai's turn"}</span>
+    </div>
+  );
+}
+
+/**
+ * Pick a delay (ms) for an Ai play. Confident truthful plays come back
+ * fast; bluffs more often pause to "think." Either branch sometimes picks
+ * the opposite range so the timing itself can be a misdirection.
+ */
+function pickAiPlayDelay(isBluff) {
+  // 30% chance the Ai chooses a deceptive timing (fast-when-bluffing or
+  // slow-when-honest) to keep the player guessing.
+  const flip = Math.random() < 0.3;
+  const slow = (isBluff && !flip) || (!isBluff && flip);
+  if (slow) return 1500 + Math.random() * 1400; // 1.5 – 2.9s
+  return 300 + Math.random() * 600;             // 0.3 – 0.9s
+}
+
+/**
+ * Pick a delay (ms) for an Ai accept/challenge decision. We don't get the
+ * decision until we call decideChallenge, so we use a generic spread:
+ * sometimes snappy (instinct), sometimes deliberate.
+ */
+function pickAiDecisionDelay() {
+  const r = Math.random();
+  if (r < 0.35) return 250 + Math.random() * 500;   // snap reaction
+  if (r < 0.75) return 900 + Math.random() * 700;   // moderate
+  return 1800 + Math.random() * 1200;               // up to ~3s, "deliberation"
+}
+
 // ────────────────────────────────────────────────────────────
 // Scoreboard + Bluff probability
 // ────────────────────────────────────────────────────────────
@@ -501,11 +551,14 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
       {/* Center pile */}
       <div className="center">
         <div className="required-rank">
-          <span className="required-label">How many</span>
-          <span className="rank-display">
-            <span className="rank-glow" aria-hidden="true" />
-            <span className="rank">{displayedRank ?? state.currentRank}</span>
-          </span>
+          <TurnArrow direction={state.turn === 'player' ? 'down' : 'up'} />
+          <div className="required-rank-text">
+            <span className="required-label">How many</span>
+            <span className="rank-display">
+              <span className="rank-glow" aria-hidden="true" />
+              <span className="rank">{displayedRank ?? state.currentRank}</span>
+            </span>
+          </div>
         </div>
 
         <div className="pile-display">
@@ -770,8 +823,10 @@ export default function App() {
     if (!state || state.status !== 'playing') return;
     if (state.turn !== 'ai') return;
 
-    // Case A: Ai must decide accept/challenge of player's claim
+    // Case A: Ai must decide accept/challenge of player's claim.
+    // Variable delay 0.25–3.0s simulates instinct / deliberation.
     if (state.lastPlay && state.lastPlay.player === 'player') {
+      const delay = pickAiDecisionDelay();
       const t = setTimeout(() => {
         const decision = decideChallenge({
           playerClaimedRank: state.lastPlay.claimedRank,
@@ -796,22 +851,24 @@ export default function App() {
           const result = acceptClaim(state);
           setState(result.state);
         }
-      }, 1100);
+      }, delay);
       return () => clearTimeout(t);
     }
 
-    // Case B: Ai's turn to play cards (no pending lastPlay)
+    // Case B: Ai's turn to play cards (no pending lastPlay).
+    // Decide first so we can pick a delay that reflects (or sometimes
+    // deliberately misleads about) whether the Ai is bluffing.
     if (!state.lastPlay) {
+      const play = decidePlay({
+        aiHand: state.aiHand,
+        requiredRank: state.currentRank,
+        difficulty: settings.difficulty,
+        mode: settings.mode,
+      });
+      const cardsToPlay = play.cardsToPlay.length > 0 ? play.cardsToPlay : state.aiHand.slice(0, 1);
+      if (cardsToPlay.length === 0) return; // Should never happen given win check
+      const delay = pickAiPlayDelay(play.isBluff);
       const t = setTimeout(() => {
-        const play = decidePlay({
-          aiHand: state.aiHand,
-          requiredRank: state.currentRank,
-          difficulty: settings.difficulty,
-          mode: settings.mode,
-        });
-        // Safety: if the Ai somehow has no cards to play, force a single card from hand
-        const cardsToPlay = play.cardsToPlay.length > 0 ? play.cardsToPlay : state.aiHand.slice(0, 1);
-        if (cardsToPlay.length === 0) return; // Should never happen given win check
         setAiDialogue(play.dialogue);
         const result = playCards(state, {
           cardsPlayed: cardsToPlay,
@@ -820,7 +877,7 @@ export default function App() {
           player: 'ai',
         });
         if (result.state) setState(result.state);
-      }, 1300);
+      }, delay);
       return () => clearTimeout(t);
     }
   }, [state, settings.difficulty, settings.mode]);
