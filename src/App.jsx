@@ -492,7 +492,7 @@ function ResultOverlay({ winner, onRematch, onMenu }) {
 // Game Table
 // ─────────────────────────────────────────────────────────────
 
-function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displayedRank, banner, skipFutureOutcomeSounds }) {
+function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displayedRank, banner, skipFutureOutcomeSounds, outputComplete }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [claimedCount, setClaimedCount] = useState(1);
   // IDs of cards currently mid-toss-animation. Held in local state so the
@@ -517,16 +517,22 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
     [state, settings]
   );
 
+  // outputComplete gates the player's controls: we don't unlock the
+  // next claim until the previous turn's log entries have fully
+  // revealed, the narrator has finished speaking, and the result
+  // banner has cleared. Same fairness rule we already apply to the Ai.
   const playerCanPlay =
     state.status === 'playing' &&
     state.turn === 'player' &&
-    state.lastPlay === null;
+    state.lastPlay === null &&
+    outputComplete;
 
   const playerMustRespond =
     state.status === 'playing' &&
     state.turn === 'player' &&
     state.lastPlay !== null &&
-    state.lastPlay.player === 'ai';
+    state.lastPlay.player === 'ai' &&
+    outputComplete;
 
   // Toggle card selection
   function toggleCard(card) {
@@ -622,9 +628,14 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
         </div>
       </div>
 
-      {/* Center pile */}
+      {/* Center pile. The key on .required-rank ensures the element
+        * re-mounts each time the rank advances, triggering the
+        * hand-transition CSS animation defined in styles.css. */}
       <div className="center">
-        <div className="required-rank">
+        <div
+          className="required-rank"
+          key={`hand-${displayedRank ?? state.currentRank}-${state.turn}-${state.lastPlay?.player ?? 'none'}`}
+        >
           <span className="required-label">
             {/* The label addresses whoever owns the current CLAIM.
               * - If lastPlay exists, the claim belongs to lastPlay.player.
@@ -1261,6 +1272,9 @@ export default function App() {
               displayedRank={displayedRank}
               banner={banner}
               skipFutureOutcomeSounds={skipFutureOutcomeSounds}
+              outputComplete={
+                visibleLogCount >= totalLogCount && !speechBusy && !banner
+              }
             />
           </div>
           {state.status === 'gameover' && (

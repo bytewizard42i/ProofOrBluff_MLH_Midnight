@@ -179,18 +179,20 @@ export function playFunny() {
   tone({ type: 'sine',     freq: 640, freqEnd: 2400, t0: 0, dur: 0.45, gain: 0.12 });
 }
 
-/** Tiny ascending two-tone blip when a card is SELECTED. ~80ms. */
+/** Ascending SWEEP when a card is SELECTED. Starts low (~220 Hz) and
+ *  sweeps up to its target pitch over ~140ms for a satisfying whoosh. */
 export function playPickClick() {
   if (!ensureCtx()) return;
-  tone({ type: 'triangle', freq: 660,  freqEnd: 990,  t0: 0,    dur: 0.06, gain: 0.22, gainEnd: 0.18 });
-  tone({ type: 'sine',     freq: 1320, freqEnd: 1980, t0: 0.02, dur: 0.05, gain: 0.10, gainEnd: 0.05 });
+  tone({ type: 'triangle', freq: 220, freqEnd: 990,  t0: 0,    dur: 0.14, gain: 0.05, gainEnd: 0.22 });
+  tone({ type: 'sine',     freq: 440, freqEnd: 1980, t0: 0.02, dur: 0.12, gain: 0.03, gainEnd: 0.10 });
 }
 
-/** Tiny descending two-tone blip when a card is DESELECTED. ~80ms. */
+/** Descending SWEEP when a card is DESELECTED. Mirror of the pick:
+ *  starts high and falls to a low pitch. */
 export function playUnpickClick() {
   if (!ensureCtx()) return;
-  tone({ type: 'triangle', freq: 990,  freqEnd: 660,  t0: 0,    dur: 0.06, gain: 0.22, gainEnd: 0.18 });
-  tone({ type: 'sine',     freq: 1980, freqEnd: 1320, t0: 0.02, dur: 0.05, gain: 0.10, gainEnd: 0.05 });
+  tone({ type: 'triangle', freq: 990,  freqEnd: 220, t0: 0,    dur: 0.14, gain: 0.22, gainEnd: 0.05 });
+  tone({ type: 'sine',     freq: 1980, freqEnd: 440, t0: 0.02, dur: 0.12, gain: 0.10, gainEnd: 0.03 });
 }
 
 /** Brass-style triumphant fanfare. Two ascending arpeggios in C, finishing
