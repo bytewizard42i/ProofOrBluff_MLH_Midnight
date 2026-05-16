@@ -620,7 +620,7 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
           </span>
         </div>
 
-        {state.turn === 'ai' && !state.lastPlay && state.status === 'playing' && (
+        {state.status === 'playing' && (state.turn === 'ai' || state.lastPlay?.player === 'ai') && (
           <div className="ai-thinking">
             <div className="ai-thinking-text">
               I have {state.aiHand.length} card{state.aiHand.length === 1 ? '' : 's'}

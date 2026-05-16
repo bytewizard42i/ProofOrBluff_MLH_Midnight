@@ -264,6 +264,9 @@ button.active {
   grid-template-rows: auto 1fr auto;
   gap: 1rem;
   min-width: 0;
+  /* Keep big glows (rank halo, banner box-shadows) from leaking into
+   * the scoreboard column to the right. */
+  overflow: hidden;
 }
 
 /* ────────── Scoreboard ────────── */
@@ -472,6 +475,8 @@ button.active {
   gap: 1rem;
   padding: 1.5rem;
   min-height: 220px;
+  min-width: 0;          /* allow grid item to shrink */
+  overflow: hidden;      /* clip rank halo within the center column */
 }
 
 .required-rank {
@@ -601,7 +606,8 @@ button.active {
 
 .rank-glow {
   position: absolute;
-  inset: -40%;
+  /* Smaller halo so it doesn't visually bleed past the column edge. */
+  inset: -20%;
   z-index: -1;
   background:
     radial-gradient(
