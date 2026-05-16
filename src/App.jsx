@@ -626,7 +626,12 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
       <div className="center">
         <div className="required-rank">
           <span className="required-label">
-            {state.turn === 'ai'
+            {/* The label addresses whoever owns the current CLAIM.
+              * - If lastPlay exists, the claim belongs to lastPlay.player.
+              * - Otherwise the next claim will belong to state.turn.
+              * (state.turn flips after a play to mean "must respond",
+              *  so we can't just key off it for the label.) */}
+            {(state.lastPlay ? state.lastPlay.player : state.turn) === 'ai'
               ? 'Ai, how many do you have of:'
               : settings.handle
                 ? `${settings.handle}, how many:`
