@@ -142,37 +142,48 @@ h3,
 
 .menu-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  max-width: 720px;
+  /* Each card is allowed to grow much larger now — there's plenty of
+   * horizontal real estate at modern resolutions and the cramped
+   * 200px columns were squeezing button labels onto multiple lines. */
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  max-width: 1100px;
   width: 100%;
 }
 
 .option-group {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1rem;
+  border-radius: 14px;
+  padding: 1.4rem 1.5rem;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .option-group h3 {
-  margin: 0 0 0.75rem;
-  font-size: 0.85rem;
+  margin: 0 0 1rem;
+  font-size: 1rem;
   text-transform: uppercase;
-  letter-spacing: 0.15em;
+  letter-spacing: 0.2em;
   color: var(--violet);
+  font-weight: 700;
 }
 
 .option-buttons {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.6rem;
   justify-content: center;
 }
 
 .option-buttons button {
-  flex: 1;
-  min-width: 70px;
+  flex: 1 1 auto;
+  min-width: 96px;
+  padding: 0.7rem 1rem;
+  font-size: 1rem;
+  white-space: nowrap;
 }
 
 button {
@@ -541,13 +552,17 @@ button.active {
 
 .required-label {
   font-family: 'Cinzel', serif;
-  font-size: 1.35rem;
-  letter-spacing: 0.18em;
-  /* Drop the uppercase so the player's handle stays in its chosen casing
-   * (e.g. "johnny5i, how many:") instead of being shouted. */
+  /* Scales with viewport so '<handle>, how many:' grows to fill the
+   * center area on wide screens but never wraps to a second line. */
+  font-size: clamp(1.3rem, 2.6vw, 2.4rem);
+  letter-spacing: 0.12em;
   text-transform: none;
   color: var(--text-dim);
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 /* ────────── Handle input on the menu ────────── */

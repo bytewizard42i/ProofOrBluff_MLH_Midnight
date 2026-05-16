@@ -192,3 +192,112 @@ export function playGameLost() {
   playWahWah();
   setTimeout(playYeoww, 600);
 }
+
+/** Quick chip-click chime for the player's submit/accept/challenge press. */
+export function playSubmitClick() {
+  if (!ensureCtx()) return;
+  tone({ type: 'sine',     freq: 880, freqEnd: 1320, t0: 0, dur: 0.12, gain: 0.32 });
+  tone({ type: 'triangle', freq: 440, t0: 0, dur: 0.1, gain: 0.18 });
+}
+
+// ──────────────────────────────────────────────────────────────
+// Background lounge music
+// ──────────────────────────────────────────────────────────────
+//
+// A slow jazzy chord progression that loops softly. Synthesized purely
+// in the Web Audio API so we don't ship any audio files. Tones only,
+// loosely evoking the "Where do I begin?" / lounge-Vegas vibe without
+// copying any specific melody.
+
+let musicLoopId = null;
+let musicGain = null;
+
+/**
+ * Start the lounge music loop. Safe to call multiple times; no-op if
+ * already playing. The loop is built from chord arpeggios scheduled in
+ * advance via the AudioContext clock so it stays in tempo.
+ */
+export function startBackgroundMusic() {
+  const c = ensureCtx();
+  if (!c) return;
+  if (musicLoopId) return; // already running
+
+  // Dedicated soft gain so music sits well under the SFX. Routed through
+  // the master gain so the mute toggle still kills it.
+  if (!musicGain) {
+    musicGain = c.createGain();
+    musicGain.gain.value = 0.16; // very gentle
+    musicGain.connect(masterGain);
+  }
+
+  // ii–V–I–vi style progression in C minor-ish for a smoky feel:
+  //   Cm7  →  Fm7  →  Bb7  →  Ebmaj7
+  // Each chord = 4 beats at ~80 BPM (0.75s/beat, 3s/chord, 12s/loop).
+  const beat = 0.75;
+  const chord = 4 * beat;
+  const chords = [
+    { root: 130.81, voicing: [261.63, 311.13, 392.00, 466.16] }, // Cm7  : C Eb G Bb
+    { root: 174.61, voicing: [349.23, 415.30, 523.25, 622.25] }, // Fm7  : F Ab C Eb
+    { root: 116.54, voicing: [233.08, 293.66, 369.99, 466.16] }, // Bb7  : Bb D F Ab
+    { root: 155.56, voicing: [311.13, 392.00, 466.16, 587.33] }, // Ebmaj7: Eb G Bb D
+  ];
+
+  const scheduleChord = ({ root, voicing }, t0) => {
+    // Soft bass note across the whole chord duration.
+    const bass = c.createOscillator();
+    const bg = c.createGain();
+    bass.type = 'sine';
+    bass.frequency.setValueAtTime(root, t0);
+    bg.gain.setValueAtTime(0.0001, t0);
+    bg.gain.exponentialRampToValueAtTime(0.7, t0 + 0.1);
+    bg.gain.exponentialRampToValueAtTime(0.4, t0 + chord - 0.3);
+    bg.gain.exponentialRampToValueAtTime(0.0001, t0 + chord);
+    bass.connect(bg).connect(musicGain);
+    bass.start(t0);
+    bass.stop(t0 + chord + 0.05);
+
+    // Soft arpeggio of the voicing — gives the lounge piano feel.
+    voicing.forEach((f, i) => {
+      const o = c.createOscillator();
+      const g = c.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(f, t0 + i * beat);
+      g.gain.setValueAtTime(0.0001, t0 + i * beat);
+      g.gain.exponentialRampToValueAtTime(0.55, t0 + i * beat + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * beat + beat * 0.95);
+      o.connect(g).connect(musicGain);
+      o.start(t0 + i * beat);
+      o.stop(t0 + i * beat + beat);
+    });
+  };
+
+  // Schedule one full loop and reschedule slightly before it ends so the
+  // next loop is seamless. We use the AudioContext clock for precision.
+  const tick = () => {
+    if (!musicLoopId) return; // stopped
+    const start = c.currentTime + 0.05;
+    chords.forEach((ch, i) => scheduleChord(ch, start + i * chord));
+  };
+
+  // setInterval close to the loop length keeps queueing the next bar.
+  tick();
+  musicLoopId = setInterval(tick, chords.length * chord * 1000);
+}
+
+/** Stop the lounge music loop. */
+export function stopBackgroundMusic() {
+  if (musicLoopId) {
+    clearInterval(musicLoopId);
+    musicLoopId = null;
+  }
+  if (musicGain) {
+    // Soft fade to avoid clicks.
+    const c = ensureCtx();
+    if (c) {
+      const now = c.currentTime;
+      musicGain.gain.cancelScheduledValues(now);
+      musicGain.gain.setValueAtTime(musicGain.gain.value, now);
+      musicGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+    }
+  }
+}

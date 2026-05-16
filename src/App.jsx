@@ -8,6 +8,9 @@ import {
   playYouMisCalled,
   playGameWon,
   playGameLost,
+  playSubmitClick,
+  startBackgroundMusic,
+  stopBackgroundMusic,
 } from './sounds.js';
 import {
   initGame,
@@ -480,7 +483,7 @@ function ResultOverlay({ winner, onRematch, onMenu }) {
 // Game Table
 // ─────────────────────────────────────────────────────────────
 
-function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displayedRank, banner }) {
+function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displayedRank, banner, skipFutureOutcomeSounds }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [claimedCount, setClaimedCount] = useState(1);
   // IDs of cards currently mid-toss-animation. Held in local state so the
@@ -532,6 +535,7 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
   function handlePlay() {
     const cardsPlayed = state.playerHand.filter((c) => selectedIds.has(c.id));
     if (cardsPlayed.length === 0) return;
+    playSubmitClick();
     // Trigger the 3D toss animation first; commit state when it finishes
     // so the cards visibly fly off the hand into the pile.
     const ids = new Set(cardsPlayed.map((c) => c.id));
@@ -554,6 +558,7 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
   }
 
   function handleAccept() {
+    playSubmitClick();
     const result = acceptClaim(state);
     if (result.error) return;
     setAiDialogue('');
@@ -561,6 +566,7 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
   }
 
   function handleChallenge() {
+    playSubmitClick();
     const result = challenge(state);
     if (result.error) return;
     const reaction = getChallengeReaction({
@@ -569,6 +575,18 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
     });
     setAiDialogue(reaction);
     onUpdate(result.state);
+    // The outcome is already known synchronously. Play the matching
+    // outcome SFX 250ms after the press so the player gets immediate
+    // feedback instead of waiting for the staggered log to reach the
+    // CAUGHT BLUFFING / CHALLENGE FAILED line. Tell App to skip the
+    // log-reveal duplicate.
+    const claimWasTrue = result.challengeResult.claimWasTrue;
+    const newLogLength = result.state.log.length;
+    setTimeout(() => {
+      if (claimWasTrue) playYouMisCalled();   // you called a true claim
+      else              playYouCaughtAi();    // you caught a bluff
+    }, 250);
+    if (skipFutureOutcomeSounds) skipFutureOutcomeSounds(newLogLength);
   }
 
   const pileSize = state.pile.length + (state.lastPlay ? state.lastPlay.cards.length : 0);
@@ -832,6 +850,25 @@ export default function App() {
     try { window.localStorage.setItem('pob.muted', muted ? '1' : '0'); } catch { /* noop */ }
   }, [muted]);
 
+  // First-gesture audio unlock. Browsers require a user interaction
+  // before AudioContext can play, so we listen for the first click/key
+  // anywhere on the page and use it to prime the context + start the
+  // lounge music. Self-removes after firing once.
+  useEffect(() => {
+    const start = () => {
+      unlockAudio();
+      startBackgroundMusic();
+      window.removeEventListener('pointerdown', start);
+      window.removeEventListener('keydown', start);
+    };
+    window.addEventListener('pointerdown', start, { once: false });
+    window.addEventListener('keydown', start, { once: false });
+    return () => {
+      window.removeEventListener('pointerdown', start);
+      window.removeEventListener('keydown', start);
+    };
+  }, []);
+
   // Tracks the last log index we played a sound for, so each newly
   // revealed entry triggers its outcome cue exactly once.
   const lastSoundedRef = useRef(0);
@@ -941,8 +978,19 @@ export default function App() {
     if (totalLogCount === 0) lastSoundedRef.current = 0;
   }, [totalLogCount]);
 
+  // Fast-forward the outcome-sound cursor past the entries that the
+  // GameTable just played manually (after a player challenge). Without
+  // this the staggered log-reveal would re-trigger the same SFX a few
+  // seconds later.
+  const skipFutureOutcomeSounds = useCallback((upToIndex) => {
+    if (typeof upToIndex === 'number') {
+      lastSoundedRef.current = Math.max(lastSoundedRef.current, upToIndex);
+    }
+  }, []);
+
   const handleStart = useCallback((cfg) => {
     unlockAudio(); // user gesture — primes the AudioContext
+    startBackgroundMusic();
     lastSoundedRef.current = 0;
     setSettings(cfg);
     const fresh = initGame(cfg.mode);
@@ -1092,6 +1140,7 @@ export default function App() {
               setAiDialogue={setAiDialogue}
               displayedRank={displayedRank}
               banner={banner}
+              skipFutureOutcomeSounds={skipFutureOutcomeSounds}
             />
           </div>
           {state.status === 'gameover' && (
