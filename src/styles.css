@@ -542,10 +542,36 @@ button.active {
 .required-label {
   font-family: 'Cinzel', serif;
   font-size: 1.35rem;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  /* Drop the uppercase so the player's handle stays in its chosen casing
+   * (e.g. "johnny5i, how many:") instead of being shouted. */
+  text-transform: none;
   color: var(--text-dim);
   font-weight: 600;
+}
+
+/* ────────── Handle input on the menu ────────── */
+.handle-input {
+  width: 100%;
+  max-width: 320px;
+  padding: 0.7rem 0.95rem;
+  font-family: 'Cinzel', serif;
+  font-size: 1.05rem;
+  letter-spacing: 0.05em;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.handle-input::placeholder {
+  color: var(--text-dim);
+  font-style: italic;
+}
+.handle-input:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(255, 214, 10, 0.25);
 }
 
 /* Rank display: a giant gold letter with a radial halo behind it. */

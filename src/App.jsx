@@ -334,9 +334,25 @@ function Tutorial({ onClose }) {
 // Menu
 // ─────────────────────────────────────────────────────────────
 
+// localStorage key for the player's chosen handle so we can pre-fill it
+// on subsequent visits.
+const HANDLE_KEY = 'pob.handle';
+
 function Menu({ onStart, onShowHelp }) {
   const [mode, setMode] = useState('home');
   const [difficulty, setDifficulty] = useState('medium');
+  const [handle, setHandle] = useState(() => {
+    try { return window.localStorage.getItem(HANDLE_KEY) || ''; }
+    catch { return ''; }
+  });
+
+  const trimmedHandle = handle.trim();
+  const canStart = trimmedHandle.length > 0;
+  const submit = () => {
+    if (!canStart) return;
+    try { window.localStorage.setItem(HANDLE_KEY, trimmedHandle); } catch { /* noop */ }
+    onStart({ mode, difficulty, handle: trimmedHandle });
+  };
 
   return (
     <div className="menu">
@@ -350,6 +366,21 @@ function Menu({ onStart, onShowHelp }) {
       </div>
 
       <div className="menu-options">
+        <div className="option-group">
+          <h3>Your handle</h3>
+          <input
+            className="handle-input"
+            type="text"
+            value={handle}
+            onChange={(e) => setHandle(e.target.value.slice(0, 24))}
+            onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+            placeholder="e.g. johnny5i"
+            maxLength={24}
+            autoFocus
+            aria-label="Player handle"
+          />
+        </div>
+
         <div className="option-group">
           <h3>Mode</h3>
           <div className="option-buttons">
@@ -394,7 +425,12 @@ function Menu({ onStart, onShowHelp }) {
       </div>
 
       <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-        <button className="primary" onClick={() => onStart({ mode, difficulty })}>
+        <button
+          className="primary"
+          onClick={submit}
+          disabled={!canStart}
+          title={canStart ? '' : 'Enter a handle to begin'}
+        >
           Deal me in
         </button>
         <button onClick={onShowHelp}>How to Play</button>
@@ -557,7 +593,9 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
       {/* Center pile */}
       <div className="center">
         <div className="required-rank">
-          <span className="required-label">How many</span>
+          <span className="required-label">
+            {settings.handle ? `${settings.handle}, how many:` : 'How many'}
+          </span>
           <span className="rank-display">
             <span className="rank-glow" aria-hidden="true" />
             <span className="rank">{displayedRank ?? state.currentRank}</span>
