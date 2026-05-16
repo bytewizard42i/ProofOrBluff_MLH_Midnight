@@ -619,7 +619,11 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
       <div className="center">
         <div className="required-rank">
           <span className="required-label">
-            {settings.handle ? `${settings.handle}, how many:` : 'How many'}
+            {state.turn === 'ai'
+              ? 'Ai, how many do you have of:'
+              : settings.handle
+                ? `${settings.handle}, how many:`
+                : 'How many'}
           </span>
           <span className="rank-display">
             <span className="rank-glow" aria-hidden="true" />

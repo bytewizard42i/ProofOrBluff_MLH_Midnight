@@ -170,6 +170,11 @@ function challenge(state) {
 
   const newState = { ...state };
   const fullPile = [...state.pile, ...state.lastPlay.cards];
+  // Was there a real pile to pick up, or was this challenge fired
+  // before any prior accepts had stacked cards? When the pile started
+  // empty, the only cards available are the ones the bluffer just
+  // played — we surface that explicitly in the narration below.
+  const pileWasEmpty = state.pile.length === 0;
 
   const challenger = state.turn; // The person whose turn it is now is the one challenging
   const bluffer = state.lastPlay.player;
@@ -194,7 +199,11 @@ function challenge(state) {
     } else {
       newState.aiHand = [...state.aiHand, ...fullPile];
     }
-    newState.log.push(`CHALLENGE FAILED! The claim was true. ${challenger === 'player' ? 'You pick' : 'AI picks'} up ${fullPile.length} card(s).`);
+    const who = challenger === 'player' ? 'You pick' : 'AI picks';
+    newState.log.push(`CHALLENGE FAILED! The claim was true. ${who} up ${fullPile.length} card(s).`);
+    if (pileWasEmpty) {
+      newState.log.push(`The pile was empty — ${who.toLowerCase()} up the ${fullPile.length} card(s) just played as the penalty.`);
+    }
   } else {
     // Bluffer loses — picks up the pile
     if (bluffer === 'player') {
@@ -202,7 +211,11 @@ function challenge(state) {
     } else {
       newState.aiHand = [...state.aiHand, ...fullPile];
     }
-    newState.log.push(`CAUGHT BLUFFING! The claim was false. ${bluffer === 'player' ? 'You pick' : 'AI picks'} up ${fullPile.length} card(s).`);
+    const who = bluffer === 'player' ? 'You pick' : 'AI picks';
+    newState.log.push(`CAUGHT BLUFFING! The claim was false. ${who} up ${fullPile.length} card(s).`);
+    if (pileWasEmpty) {
+      newState.log.push(`The pile was empty — ${who.toLowerCase()} up the ${fullPile.length} card(s) just played as the penalty.`);
+    }
   }
 
   newState.pile = [];
