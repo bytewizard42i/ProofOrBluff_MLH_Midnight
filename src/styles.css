@@ -35,11 +35,35 @@ body,
 
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background:
-    radial-gradient(ellipse at top, #1a1030 0%, var(--bg) 60%) fixed;
+  background-color: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  position: relative;
+}
+
+/* Hero background image — sits behind everything, dimmed for legibility. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    url('/pob-bg.png') center/cover no-repeat fixed;
+  opacity: 0.42;
+  filter: saturate(1.1) contrast(1.05);
+}
+
+/* Vignette / readability overlay on top of the hero image. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse at top, rgba(26, 16, 48, 0.55) 0%, rgba(10, 10, 20, 0.85) 60%, rgba(10, 10, 20, 0.95) 100%),
+    linear-gradient(180deg, rgba(10, 10, 20, 0.4) 0%, rgba(10, 10, 20, 0.7) 100%);
+  pointer-events: none;
 }
 
 h1,
@@ -350,6 +374,7 @@ button.active {
   gap: 0.4rem;
   justify-content: center;
   margin-bottom: 1rem;
+  perspective: 1200px;
 }
 
 .claim-panel {
@@ -400,9 +425,70 @@ button.active {
 }
 
 .card.selected {
-  transform: translateY(-12px);
-  box-shadow: 0 16px 36px rgba(255, 214, 10, 0.5);
-  outline: 2px solid var(--gold);
+  transform: translateY(-14px) scale(1.04);
+  background: linear-gradient(180deg, #fff8d4 0%, #fef0a8 100%);
+  box-shadow:
+    0 0 0 3px var(--gold),
+    0 18px 40px rgba(255, 214, 10, 0.55),
+    0 0 28px rgba(255, 214, 10, 0.4);
+  outline: none;
+  z-index: 5;
+}
+
+.card.selected.red {
+  color: #a30f1a;
+}
+
+.card.selected.black {
+  color: #0a0a0a;
+}
+
+/* ────────── Pair groups (neon outlines) ──────────
+ * App.jsx detects same-rank groups and assigns each a CSS variable color.
+ * The thin neon ring is rendered with an outer box-shadow so it stacks
+ * cleanly with the selected ring without colliding.
+ */
+.card.pair {
+  box-shadow:
+    0 0 0 2px var(--pair-color, #fff),
+    0 0 14px var(--pair-glow, rgba(255, 255, 255, 0.5)),
+    var(--shadow);
+}
+
+.card.pair.selected {
+  box-shadow:
+    0 0 0 2px var(--pair-color, #fff),
+    0 0 0 5px var(--gold),
+    0 18px 40px rgba(255, 214, 10, 0.55),
+    0 0 22px var(--pair-glow, rgba(255, 255, 255, 0.5));
+}
+
+/* ────────── 3D submit animation ────────── */
+@keyframes card-toss {
+  0% {
+    transform: translateY(-14px) scale(1.04) rotateY(0deg) rotateX(0deg);
+    opacity: 1;
+  }
+  35% {
+    transform: translate(20vw, -30vh) scale(1.15) rotateY(180deg) rotateX(12deg);
+    opacity: 1;
+  }
+  70% {
+    transform: translate(0, -10vh) scale(0.9) rotateY(540deg) rotateX(-6deg);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate(0, 0) scale(0.5) rotateY(720deg);
+    opacity: 0;
+  }
+}
+
+.card.tossing {
+  animation: card-toss 0.85s cubic-bezier(0.5, 0, 0.6, 1) forwards;
+  pointer-events: none;
+  transform-style: preserve-3d;
+  backface-visibility: visible;
+  z-index: 10;
 }
 
 .card.disabled {
@@ -481,6 +567,70 @@ button.active {
 .log-entry:last-child {
   color: var(--text);
   border-bottom: none;
+}
+
+/* ────────── Tutorial / How-to-play overlay ────────── */
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 2rem;
+  overflow-y: auto;
+}
+
+.tutorial-card {
+  background: linear-gradient(180deg, #1a1030 0%, #0a0a14 100%);
+  border: 2px solid var(--gold);
+  border-radius: 20px;
+  padding: 2.5rem 2.5rem 2rem;
+  max-width: 640px;
+  width: 100%;
+  box-shadow: 0 0 80px rgba(255, 214, 10, 0.25);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.tutorial-card h2 {
+  font-size: 2rem;
+  margin: 0 0 0.25rem;
+  color: var(--gold);
+  text-align: center;
+}
+
+.tutorial-card .subtitle {
+  text-align: center;
+  font-style: italic;
+  color: var(--text-dim);
+  margin: 0 0 1.5rem;
+}
+
+.tutorial-card ol {
+  padding-left: 1.5rem;
+  line-height: 1.6;
+}
+
+.tutorial-card ol li {
+  margin-bottom: 0.6rem;
+}
+
+.tutorial-card .hint {
+  background: rgba(157, 78, 221, 0.12);
+  border-left: 3px solid var(--violet);
+  padding: 0.75rem 1rem;
+  margin: 1.25rem 0;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.tutorial-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 1.5rem;
 }
 
 /* ────────── Result overlay ────────── */

@@ -30,10 +30,16 @@ import { validatePlay, resolveChallenge, checkWinCondition, formatClaim } from '
 /**
  * Initialize a new game.
  */
+const HAND_SIZE = 10;
+
 function initGame(mode = 'home') {
   const deck = createDeck(mode);
   const shuffled = shuffleDeck(deck);
-  const { playerHand, aiHand } = dealCards(shuffled);
+  // Deal a fixed-size hand to each side so the game stays brisk and pair
+  // detection feels meaningful. Remaining cards stay out of play until a
+  // challenge feeds them back via the pile.
+  const playerHand = shuffled.slice(0, HAND_SIZE);
+  const aiHand = shuffled.slice(HAND_SIZE, HAND_SIZE * 2);
 
   // Random starting rank
   const startingRank = RANKS[Math.floor(Math.random() * RANKS.length)];

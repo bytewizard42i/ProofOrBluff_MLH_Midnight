@@ -34,12 +34,55 @@ const SUIT_COLOR = {
   spades: 'black',
 };
 
-function PlayingCard({ card, selected, onClick, disabled }) {
+// Neon palette for pair-group highlights. Each rank present 2+ times in the
+// hand is assigned the next available color from this list.
+const PAIR_COLORS = [
+  { color: '#ff3df0', glow: 'rgba(255, 61, 240, 0.6)' }, // magenta
+  { color: '#3dffd5', glow: 'rgba(61, 255, 213, 0.6)' }, // cyan-mint
+  { color: '#ff8c3d', glow: 'rgba(255, 140, 61, 0.6)' }, // orange
+  { color: '#a3ff3d', glow: 'rgba(163, 255, 61, 0.6)' }, // lime
+  { color: '#3d8cff', glow: 'rgba(61, 140, 255, 0.6)' }, // electric blue
+  { color: '#ff3d6e', glow: 'rgba(255, 61, 110, 0.6)' }, // hot pink
+  { color: '#b03dff', glow: 'rgba(176, 61, 255, 0.6)' }, // purple
+];
+
+/**
+ * Build a map of rank → { color, glow } for ranks appearing 2+ times in hand.
+ */
+function detectPairs(hand) {
+  const counts = {};
+  for (const card of hand) {
+    counts[card.rank] = (counts[card.rank] || 0) + 1;
+  }
+  const map = {};
+  let i = 0;
+  for (const rank of Object.keys(counts)) {
+    if (counts[rank] >= 2) {
+      map[rank] = PAIR_COLORS[i % PAIR_COLORS.length];
+      i += 1;
+    }
+  }
+  return map;
+}
+
+function PlayingCard({ card, selected, onClick, disabled, pairColor, tossing }) {
   const color = SUIT_COLOR[card.suit];
   const glyph = SUIT_GLYPH[card.suit];
+  const classes = [
+    'card',
+    color,
+    selected ? 'selected' : '',
+    disabled ? 'disabled' : '',
+    pairColor ? 'pair' : '',
+    tossing ? 'tossing' : '',
+  ].filter(Boolean).join(' ');
+  const style = pairColor
+    ? { '--pair-color': pairColor.color, '--pair-glow': pairColor.glow }
+    : undefined;
   return (
     <div
-      className={`card ${color}${selected ? ' selected' : ''}${disabled ? ' disabled' : ''}`}
+      className={classes}
+      style={style}
       onClick={disabled ? undefined : onClick}
       role="button"
       aria-pressed={selected}
@@ -62,11 +105,58 @@ function CardBack({ label = 'POB' }) {
   return <div className="card-back">{label}</div>;
 }
 
+// ────────────────────────────────────────────────────────────
+// Tutorial / How-to-play
+// ────────────────────────────────────────────────────────────
+
+function Tutorial({ onClose }) {
+  return (
+    <div className="tutorial-overlay">
+      <div className="tutorial-card">
+        <h2>How to Play</h2>
+        <p className="subtitle">Bluff in public. Prove in private.</p>
+        <ol>
+          <li>
+            Each round demands a specific <strong>rank</strong> (e.g.
+            <em> Queens</em>). The required rank advances one step every round.
+          </li>
+          <li>
+            On your turn, play <strong>1–4 cards face down</strong> and claim
+            you played that many of the required rank. The cards don't have
+            to actually match — that's where the bluffing lives.
+          </li>
+          <li>
+            The Ai then chooses to <strong>Accept</strong> your claim or call{' '}
+            <strong>Proof or Bluff!</strong>
+          </li>
+          <li>
+            If challenged: cards reveal. If you told the truth, the
+            challenger picks up the pile. If you bluffed, you do.
+          </li>
+          <li>
+            <strong>Empty your hand to win.</strong> Each player starts with
+            10 cards.
+          </li>
+        </ol>
+        <div className="hint">
+          💡 <strong>Pair hint:</strong> Cards of the same rank in your hand
+          glow with a matching neon ring — useful when you want to dump a
+          pair and claim them as something else, or stack honest plays.
+        </div>
+        <div className="tutorial-actions">
+          <button className="primary" onClick={onClose}>Got it — deal me in</button>
+          <button onClick={onClose}>Skip</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 // Menu
 // ─────────────────────────────────────────────────────────────
 
-function Menu({ onStart }) {
+function Menu({ onStart, onShowHelp }) {
   const [mode, setMode] = useState('home');
   const [difficulty, setDifficulty] = useState('medium');
 
@@ -125,15 +215,17 @@ function Menu({ onStart }) {
         </div>
       </div>
 
-      <button className="primary" onClick={() => onStart({ mode, difficulty })}>
-        Deal me in
-      </button>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+        <button className="primary" onClick={() => onStart({ mode, difficulty })}>
+          Deal me in
+        </button>
+        <button onClick={onShowHelp}>How to Play</button>
+      </div>
 
       <p className="subtitle" style={{ fontSize: '0.85rem', maxWidth: 540 }}>
-        <strong>How it works:</strong> Each turn you must claim the current
-        rank in the sequence. Play cards face down. Your opponent decides
-        whether to trust you or call <em>Proof or Bluff!</em> Empty your hand
-        to win.
+        <strong>The short version:</strong> claim the required rank, play
+        cards face down (they don't have to match), and either bluff your
+        way through or call out the Ai. Empty your hand to win.
       </p>
     </div>
   );
@@ -177,12 +269,18 @@ function ResultOverlay({ winner, onRematch, onMenu }) {
 function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [claimedCount, setClaimedCount] = useState(1);
+  // IDs of cards currently mid-toss-animation. Held in local state so the
+  // visual flourish completes before the new game state replaces them.
+  const [tossingIds, setTossingIds] = useState(new Set());
 
   // Reset selection when it becomes a new turn / round
   useEffect(() => {
     setSelectedIds(new Set());
     setClaimedCount(1);
   }, [state.currentRank, state.turn, state.lastPlay?.player]);
+
+  // Detect pairs (same-rank groups of 2+) in the current player hand.
+  const pairMap = useMemo(() => detectPairs(state.playerHand), [state.playerHand]);
 
   const playerCanPlay =
     state.status === 'playing' &&
@@ -211,18 +309,25 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
   function handlePlay() {
     const cardsPlayed = state.playerHand.filter((c) => selectedIds.has(c.id));
     if (cardsPlayed.length === 0) return;
-    const result = playCards(state, {
-      cardsPlayed,
-      claimedRank: state.currentRank,
-      claimedCount: cardsPlayed.length,
-      player: 'player',
-    });
-    if (result.error) {
-      onUpdate({ ...state, log: [...state.log, `⚠️ ${result.error}`] });
-      return;
-    }
+    // Trigger the 3D toss animation first; commit state when it finishes
+    // so the cards visibly fly off the hand into the pile.
+    const ids = new Set(cardsPlayed.map((c) => c.id));
+    setTossingIds(ids);
     setAiDialogue('');
-    onUpdate(result.state);
+    setTimeout(() => {
+      const result = playCards(state, {
+        cardsPlayed,
+        claimedRank: state.currentRank,
+        claimedCount: cardsPlayed.length,
+        player: 'player',
+      });
+      setTossingIds(new Set());
+      if (result.error) {
+        onUpdate({ ...state, log: [...state.log, `⚠️ ${result.error}`] });
+        return;
+      }
+      onUpdate(result.state);
+    }, 850);
   }
 
   function handleAccept() {
@@ -312,7 +417,9 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
               card={card}
               selected={selectedIds.has(card.id)}
               onClick={() => toggleCard(card)}
-              disabled={!playerCanPlay}
+              disabled={!playerCanPlay || tossingIds.size > 0}
+              pairColor={pairMap[card.rank]}
+              tossing={tossingIds.has(card.id)}
             />
           ))}
         </div>
@@ -342,11 +449,33 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
 // App — orchestrates state and Ai turns
 // ─────────────────────────────────────────────────────────────
 
+// localStorage key used to remember whether the player has dismissed the
+// tutorial at least once, so we don't pop it up every visit.
+const TUTORIAL_KEY = 'pob.tutorialSeen.v1';
+
 export default function App() {
   const [screen, setScreen] = useState('menu'); // 'menu' | 'game'
   const [settings, setSettings] = useState({ mode: 'home', difficulty: 'medium' });
   const [state, setState] = useState(null);
   const [aiDialogue, setAiDialogue] = useState('');
+  // Show the tutorial automatically the first time a visitor lands on the
+  // menu. They can Skip; either way we set the flag and won't show it again.
+  const [showTutorial, setShowTutorial] = useState(() => {
+    try {
+      return typeof window !== 'undefined' && !window.localStorage.getItem(TUTORIAL_KEY);
+    } catch {
+      return true;
+    }
+  });
+
+  const dismissTutorial = useCallback(() => {
+    setShowTutorial(false);
+    try {
+      window.localStorage.setItem(TUTORIAL_KEY, '1');
+    } catch {
+      /* localStorage unavailable — just don't persist */
+    }
+  }, []);
 
   const handleStart = useCallback((cfg) => {
     setSettings(cfg);
@@ -442,7 +571,10 @@ export default function App() {
         )}
       </header>
 
-      {screen === 'menu' && <Menu onStart={handleStart} />}
+      {showTutorial && <Tutorial onClose={dismissTutorial} />}
+      {screen === 'menu' && (
+        <Menu onStart={handleStart} onShowHelp={() => setShowTutorial(true)} />
+      )}
       {screen === 'game' && state && (
         <>
           <GameTable
