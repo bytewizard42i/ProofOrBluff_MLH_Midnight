@@ -1,0 +1,34 @@
+{
+  "name": "proof-or-bluff-realdeal-cli",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Headless Node CLI for the realDeal Compact contract. Drives every circuit end-to-end against a local Midnight stack (or pre-prod) using a seed-phrase wallet, so we can exercise the wiring without a browser. Shares the on-chain contract with the browser app at ../app/.",
+  "bin": {
+    "pob-cli": "./src/cli.js"
+  },
+  "scripts": {
+    "cli": "node src/cli.js",
+    "e2e": "node src/cli.js e2e"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.16.0",
+    "@midnight-ntwrk/ledger": "4.0.0",
+    "@midnight-ntwrk/onchain-runtime": "0.3.0",
+    "@midnight-ntwrk/zswap": "4.0.0",
+    "@midnight-ntwrk/wallet": "5.0.0",
+    "@midnight-ntwrk/wallet-api": "5.0.0",
+    "@midnight-ntwrk/wallet-sdk-hd": "3.0.2",
+    "@midnight-ntwrk/midnight-js-contracts": "4.0.4",
+    "@midnight-ntwrk/midnight-js-network-id": "4.0.4",
+    "@midnight-ntwrk/midnight-js-utils": "4.0.4",
+    "@midnight-ntwrk/midnight-js-types": "4.0.4",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.0.4",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.0.4",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "4.0.4",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.0.4",
+    "dotenv": "^16.4.5",
+    "rxjs": "^7.8.1"
+  },
+  "_versionNotes": "SDK pins must match realDeal/app/package.json so both surfaces speak the same proof-server / ledger versions. See ../docs/MIDNIGHT_LOCAL_DEV_AND_ECOSYSTEM_2026-05-13.md."
+}

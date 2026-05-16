@@ -25,7 +25,7 @@ import { indexerPublicDataProvider } from
   '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { fetchZkConfigProvider } from
   '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
-import { setNetworkId, NetworkId } from
+import { setNetworkId } from
   '@midnight-ntwrk/midnight-js-network-id';
 import { nativeToken } from '@midnight-ntwrk/ledger';
 
@@ -36,11 +36,9 @@ import { ENDPOINTS, NETWORK_ID, getContractAddress, setContractAddress }
 // ---------------------------------------------------------------------------
 // Network registration
 
-const NETWORK_ENUM =
-  NETWORK_ID === 'undeployed' ? NetworkId.Undeployed
-    : NETWORK_ID === 'testnet' ? NetworkId.TestNet
-    : NetworkId.MainNet;
-setNetworkId(NETWORK_ENUM);
+// In midnight-js-network-id v4.0.4 NetworkId is just a string alias
+// ('undeployed' | 'testnet' | 'mainnet') — pass the raw id through.
+setNetworkId(NETWORK_ID);
 
 // ---------------------------------------------------------------------------
 // Witness staging (used by resolveChallenge)
