@@ -41,7 +41,7 @@
 //         │                       OR moves to GAMEOVER if threshold hit
 //         └── forfeitStalledChallenge  (timeout) → same terminal logic
 //   GAMEOVER (4)
-//     └── claimPayout           → winner latches the escrow flag
+//     └── claimPayout           → winner receives the escrowed pot
 //
 // SCORING (realDeal — ZK-enforceable)
 //   Scoring events that require NO ground truth (no challenge fired):
@@ -55,9 +55,9 @@
 //    because score swings on challenges dominate.)
 //
 // WAGER / ESCROW
-//   MVP records the notional `wagerAmount` and a one-shot `escrowReleased`
-//   latch after GAMEOVER. Actual fund movement is handled off-chain via the
-//   SDK. A future contract revision will wire Zswap native-token escrow.
+//   createMatch and joinMatch each receive one shielded wager coin. The
+//   contract stores the merged match pot as a contract-held Zswap coin and
+//   sends the full pot to the winner after GAMEOVER.
 //
 // INTEGRATION WITH DIDzMonolith
 //   - Players are identified by their Midnight wallet key. The optional
@@ -104,7 +104,7 @@ struct MatchState {
   playerTwo: ZswapCoinPublicKey;
   mode: Uint<8>;                   // GameMode
   winThreshold: Uint<8>;           // 10, 15, or 20 (or 0 for empty-hand modes)
-  wagerAmount: Uint<64>;           // notional wager; off-chain settlement
+  wagerAmount: Uint<64>;           // each player's required wager
   createdAt: Uint<64>;
 
   // Commit-reveal for the shuffle seed --------------------------------------
@@ -137,6 +137,7 @@ struct MatchState {
   // Terminal state ---------------------------------------------------------
   winner: Uint<8>;                 // 0 = none, 1 = p1, 2 = p2
   escrowReleased: Boolean;
+  potHasCoin: Boolean;
 }
 
 // Hash input for deterministic match-id derivation
@@ -184,6 +185,7 @@ witness revealLastPlay(): PlayRevealWitness;
 // ============================================================================
 
 export ledger matches: Map<Bytes<32>, MatchState>;
+export ledger matchPots: Map<Bytes<32>, QualifiedShieldedCoinInfo>;
 export ledger totalMatchesCreated: Counter;
 export ledger totalMatchesCompleted: Counter;
 export ledger totalChallengesIssued: Counter;
@@ -273,11 +275,16 @@ export circuit createMatch(
   mode: Uint<8>,
   wagerAmount: Uint<64>,
   p1EntropyCommit: Bytes<32>,
-  currentTime: Uint<64>
+  currentTime: Uint<64>,
+  coin: ShieldedCoinInfo
 ): Bytes<32> {
   const caller = ownPublicKey();
   const matchId = computeMatchId(caller, mode, currentTime);
   assert(!matches.member(disclose(matchId)), "Match already exists");
+  const receivedCoin = disclose(coin);
+  assert(receivedCoin.value == (disclose(wagerAmount) as Uint<128>),
+    "Creator coin value must match wager");
+  receiveShielded(receivedCoin);
 
   const handSize = initialHandSizeForMode(mode);
   const threshold = winThresholdForMode(mode);
@@ -314,10 +321,16 @@ export circuit createMatch(
     p2HandSize: handSize,
 
     winner: 0,
-    escrowReleased: false
+    escrowReleased: false,
+    potHasCoin: true
   };
 
   matches.insert(disclose(matchId), disclose(state));
+  matchPots.insertCoin(
+    disclose(matchId),
+    receivedCoin,
+    right<ZswapCoinPublicKey, ContractAddress>(kernel.self())
+  );
   totalMatchesCreated.increment(1);
   return disclose(matchId);
 }
@@ -326,13 +339,23 @@ export circuit createMatch(
 // WAITING_FOR_ENTROPY_REVEAL.
 export circuit joinMatch(
   matchId: Bytes<32>,
-  p2EntropyCommit: Bytes<32>
+  p2EntropyCommit: Bytes<32>,
+  coin: ShieldedCoinInfo
 ): [] {
   assert(matches.member(disclose(matchId)), "Match not found");
   const m = matches.lookup(disclose(matchId));
   assert(disclose(m.phase) == (0 as Uint<8>), "Match not open for joining");
+  assert(m.potHasCoin, "Match pot not initialized");
+  assert(matchPots.member(disclose(matchId)), "Match pot not found");
+  const receivedCoin = disclose(coin);
+  assert(receivedCoin.value == (disclose(m.wagerAmount) as Uint<128>),
+    "Joiner coin value must match wager");
   const joiner = ownPublicKey();
   assert(joiner != m.playerOne, "Creator cannot join as player two");
+
+  const existingPot = matchPots.lookup(disclose(matchId));
+  receiveShielded(receivedCoin);
+  const mergedPot = mergeCoinImmediate(existingPot, receivedCoin);
 
   const updated = MatchState {
     playerOne: m.playerOne,
@@ -366,9 +389,15 @@ export circuit joinMatch(
     p2HandSize: m.p2HandSize,
 
     winner: m.winner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
   matches.insert(disclose(matchId), disclose(updated));
+  matchPots.insertCoin(
+    disclose(matchId),
+    mergedPot,
+    right<ZswapCoinPublicKey, ContractAddress>(kernel.self())
+  );
 }
 
 // Both players reveal their entropy off-chain and pass it here. The
@@ -429,7 +458,8 @@ export circuit revealSeed(
     p2HandSize: m.p2HandSize,
 
     winner: m.winner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
   matches.insert(disclose(matchId), disclose(updated));
 }
@@ -507,7 +537,8 @@ export circuit playCards(
     p2HandSize: newP2Hand,
 
     winner: m.winner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
   matches.insert(disclose(matchId), disclose(updated));
 }
@@ -563,7 +594,8 @@ export circuit acceptClaim(matchId: Bytes<32>): [] {
     p2HandSize: m.p2HandSize,
 
     winner: m.winner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
   matches.insert(disclose(matchId), disclose(updated));
 }
@@ -616,7 +648,8 @@ export circuit challengeClaim(matchId: Bytes<32>, currentTime: Uint<64>): [] {
     p2HandSize: m.p2HandSize,
 
     winner: m.winner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
   matches.insert(disclose(matchId), disclose(updated));
   totalChallengesIssued.increment(1);
@@ -739,7 +772,8 @@ export circuit resolveChallenge(matchId: Bytes<32>): Boolean {
     p2HandSize: nextP2Hand,
 
     winner: newWinner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
 
   matches.insert(disclose(matchId), disclose(updated));
@@ -825,24 +859,34 @@ export circuit forfeitStalledChallenge(
     p2HandSize: nextP2Hand,
 
     winner: newWinner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
   matches.insert(disclose(matchId), disclose(updated));
   if (newCompleted) { totalMatchesCompleted.increment(1); }
 }
 
-// After GAMEOVER, the winner flips the escrow flag. Actual wager payout
-// happens off-chain via the SDK in MVP; this latch prevents double-claims
-// and provides an on-chain audit trail.
+// After GAMEOVER, the winner receives the contract-held shielded pot. The
+// escrow latch prevents double-claims and provides an on-chain audit trail.
 export circuit claimPayout(matchId: Bytes<32>): [] {
   assert(matches.member(disclose(matchId)), "Match not found");
   const m = matches.lookup(disclose(matchId));
   assert(disclose(m.phase) == (4 as Uint<8>), "Match not in GAMEOVER");
+  assert(disclose(m.winner) != (0 as Uint<8>), "Winner not set");
   assert(!m.escrowReleased, "Payout already claimed");
+  assert(m.potHasCoin, "Match pot already released");
+  assert(matchPots.member(disclose(matchId)), "Match pot not found");
 
   const caller = ownPublicKey();
   const expected: ZswapCoinPublicKey = (m.winner == (1 as Uint<8>)) ? m.playerOne : m.playerTwo;
   assert(caller == expected, "Only the winner can claim");
+  const pot = matchPots.lookup(disclose(matchId));
+
+  sendShielded(
+    pot,
+    left<ZswapCoinPublicKey, ContractAddress>(disclose(expected)),
+    disclose(pot.value)
+  );
 
   const updated = MatchState {
     playerOne: m.playerOne,
@@ -876,9 +920,11 @@ export circuit claimPayout(matchId: Bytes<32>): [] {
     p2HandSize: m.p2HandSize,
 
     winner: m.winner,
-    escrowReleased: true
+    escrowReleased: true,
+    potHasCoin: false
   };
   matches.insert(disclose(matchId), disclose(updated));
+  matchPots.remove(disclose(matchId));
 }
 
 // ============================================================================
