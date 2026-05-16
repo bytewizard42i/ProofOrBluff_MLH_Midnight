@@ -501,8 +501,11 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
       {/* Center pile */}
       <div className="center">
         <div className="required-rank">
-          Current rank
-          <span className="rank">{state.currentRank}</span>
+          <span className="required-label">How many</span>
+          <span className="rank-display">
+            <span className="rank-glow" aria-hidden="true" />
+            <span className="rank">{state.currentRank}</span>
+          </span>
         </div>
 
         <div className="pile-display">
@@ -610,46 +613,59 @@ const LOG_REVEAL_INTERVAL_MS = 1300;
  * green/red coloring tracks "did the player benefit from this event."
  */
 function classifyLog(text) {
-  if (text.startsWith('⚠️')) return { actor: 'system', kind: 'warn', icon: '⚠️', text };
+  // Helper to build a result, stripping the leading actor word from the
+  // body (since we render the badge separately).
+  const make = (actor, kind, icon, label, body) => ({
+    actor, kind, icon, label, body, text,
+  });
+
+  if (text.startsWith('⚠️')) return make('system', 'warn', '⚠️', null, text);
 
   // Win / lose
-  if (text.startsWith('YOU WIN')) return { actor: 'player', kind: 'win-good', icon: '🏆', text };
-  if (text.startsWith('AI WINS')) return { actor: 'ai', kind: 'win-bad', icon: '💀', text };
+  if (text.startsWith('YOU WIN')) {
+    return make('player', 'win-good', '🏆', 'You', text.replace(/^YOU\s+/, ''));
+  }
+  if (text.startsWith('AI WINS')) {
+    return make('ai', 'win-bad', '💀', 'Ai', text.replace(/^AI\s+/, ''));
+  }
 
   // Bluffer caught (CAUGHT BLUFFING) — bluffer picks up the pile.
   // "You pick" => player bluffed and got caught (BAD for player).
   // "AI picks" => AI bluffed and got caught (GOOD for player).
   if (text.startsWith('CAUGHT BLUFFING')) {
-    if (text.includes('You pick')) {
-      return { actor: 'player', kind: 'win-bad', icon: '🔴', text };
-    }
-    return { actor: 'ai', kind: 'win-good', icon: '🟢', text };
+    if (text.includes('You pick')) return make('player', 'win-bad', '🔴', 'You', text);
+    return make('ai', 'win-good', '🟢', 'Ai', text);
   }
 
   // Challenge failed — claim was true, challenger picks up.
-  // "You pick" => player challenged a true claim (BAD for player).
-  // "AI picks" => AI challenged your honest claim (GOOD for player).
   if (text.startsWith('CHALLENGE FAILED')) {
-    if (text.includes('You pick')) {
-      return { actor: 'player', kind: 'win-bad', icon: '🔴', text };
-    }
-    return { actor: 'ai', kind: 'win-good', icon: '🟢', text };
+    if (text.includes('You pick')) return make('player', 'win-bad', '🔴', 'You', text);
+    return make('ai', 'win-good', '🟢', 'Ai', text);
   }
 
-  // Plays and accepts — actor extracted from the leading word.
-  if (text.startsWith('You played')) return { actor: 'player', kind: 'play', icon: '🎴', text };
-  if (text.startsWith('AI played')) return { actor: 'ai', kind: 'play', icon: '🃏', text };
-  if (text.startsWith('You accepted')) return { actor: 'player', kind: 'accept', icon: '✅', text };
-  if (text.startsWith('AI accepted')) return { actor: 'ai', kind: 'accept', icon: '✅', text };
+  // Plays and accepts — actor extracted from the leading word and stripped
+  // from the body so the badge replaces the pronoun.
+  if (text.startsWith('You played')) {
+    return make('player', 'play', '🎴', 'You', text.replace(/^You\s+/, ''));
+  }
+  if (text.startsWith('AI played')) {
+    return make('ai', 'play', '🃏', 'Ai', text.replace(/^AI\s+/, ''));
+  }
+  if (text.startsWith('You accepted')) {
+    return make('player', 'accept', '✅', 'You', text.replace(/^You\s+/, ''));
+  }
+  if (text.startsWith('AI accepted')) {
+    return make('ai', 'accept', '✅', 'Ai', text.replace(/^AI\s+/, ''));
+  }
 
-  return { actor: 'system', kind: 'info', icon: '·', text };
+  return make('system', 'info', '·', null, text);
 }
 
 /**
  * Render a single classified log entry.
  */
 function LogEntry({ entry, isNewest }) {
-  const { actor, kind, icon, text } = entry;
+  const { actor, kind, icon, label, body } = entry;
   const className = [
     'log-entry',
     `actor-${actor}`,
@@ -659,7 +675,8 @@ function LogEntry({ entry, isNewest }) {
   return (
     <div className={className}>
       <span className="log-icon" aria-hidden="true">{icon}</span>
-      <span className="log-text">{text}</span>
+      {label && <span className={`log-badge badge-${actor}`}>{label}</span>}
+      <span className="log-text">{body}</span>
     </div>
   );
 }
