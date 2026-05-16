@@ -75,9 +75,12 @@ function cleanForSpeech(text) {
   return text
     // Drop stray emoji / pictographs.
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
-    // "AI" → "the Ai" so the voice doesn't spell letters.
-    .replace(/\bAI\b/g, 'the Ai')
-    // "Ai" stays as "Ai" — most voices say it naturally; capital Ai is fine.
+    // Pronunciation fix: most TTS voices mangle "AI" / "Ai" — they
+    // either read it as the word "ai" (rhymes with "eye") or skip it.
+    // We force the dealer to spell it out as "A. E. I." so it lands
+    // clearly. Periods+spaces give the prosody engine time to breathe
+    // between each letter instead of slurring them together.
+    .replace(/\b(AI|Ai)\b/g, 'A. E. I.')
     // Collapse multiple spaces left after substitutions.
     .replace(/\s{2,}/g, ' ')
     .trim();
