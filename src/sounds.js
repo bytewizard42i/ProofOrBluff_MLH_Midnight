@@ -152,22 +152,51 @@ export function playFunny() {
   tone({ type: 'sine',     freq: 640, freqEnd: 2400, t0: 0, dur: 0.45, gain: 0.12 });
 }
 
+/** Brass-style triumphant fanfare. Two ascending arpeggios in C, finishing
+ *  on a held C major chord. Used when the player catches the Ai bluffing. */
+export function playFanfare() {
+  if (!ensureCtx()) return;
+  // Quick triplet pickup: G - C - E
+  const pickup = [392.00, 523.25, 659.25];
+  pickup.forEach((f, i) => {
+    tone({ type: 'sawtooth', freq: f, t0: i * 0.09, dur: 0.12, gain: 0.32 });
+    tone({ type: 'square',   freq: f * 0.5, t0: i * 0.09, dur: 0.12, gain: 0.14 });
+  });
+  // Main ascent: G - C - E - G - C  (held)
+  const ascent = [
+    { f: 392.00, t: 0.30, d: 0.13 }, // G4
+    { f: 523.25, t: 0.43, d: 0.13 }, // C5
+    { f: 659.25, t: 0.56, d: 0.13 }, // E5
+    { f: 783.99, t: 0.69, d: 0.13 }, // G5
+    { f: 1046.50, t: 0.82, d: 0.55 }, // C6 (held)
+  ];
+  ascent.forEach(({ f, t, d }) => {
+    tone({ type: 'sawtooth', freq: f, t0: t, dur: d, gain: 0.38 });
+    tone({ type: 'square',   freq: f * 0.5, t0: t, dur: d, gain: 0.18 });
+    // Brilliant overtone for the held final note.
+    if (d > 0.4) tone({ type: 'triangle', freq: f * 2, t0: t, dur: d, gain: 0.12 });
+  });
+  // Cymbal-ish noise hit on the held C6 for a stadium feel.
+  noise({ t0: 0.82, dur: 0.6, gain: 0.22, lowpass: 6000 });
+}
+
 // ──────────────────────────────────────────────────────────────
 // High-level outcomes routed by the App from log events
 // ──────────────────────────────────────────────────────────────
 
-/** You caught the Ai bluffing — bells + laughter + wah-wah on the Ai. */
+/** You caught the Ai bluffing — triumphant fanfare + bells + laughter.
+ *  This is the BIG WIN cue: trumpets-on-the-podium energy. */
 export function playYouCaughtAi() {
-  playWinBells();
-  setTimeout(playLaughter, 250);
-  setTimeout(playWahWah, 700);
+  playFanfare();
+  setTimeout(playWinBells, 200);
+  setTimeout(playLaughter, 550);
 }
 
-/** You got caught bluffing — rat trap snap + Tom yelp + silly slide. */
+/** You got caught bluffing — sad trombone wah-wah (per John's request),
+ *  with a small rat-trap snap up front as the "gotcha". */
 export function playYouGotCaught() {
   playRatTrap();
-  setTimeout(playYeoww, 180);
-  setTimeout(playFunny, 700);
+  setTimeout(playWahWah, 180);
 }
 
 /** Your honest claim survived a bad Ai challenge — bells. */
