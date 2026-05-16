@@ -301,9 +301,11 @@ Ethereum collapses both roles into ETH, which means **the gas payment leaks bala
 | Tier | Purpose | Persistence | Faucet |
 |---|---|---|---|
 | **Undeployed** | Local nodes (this doc's tool) | Per session | N/A — use the funding CLI |
-| **Preview** | Staging testnet for integration testing | Resets periodically | Yes |
-| **Pre-Pro** (Pre-Production) | Stable persistent public testnet | Persistent | Yes |
+| **Preview** | Staging testnet for integration testing | Resets periodically | Check docs.midnight.network |
+| **Pre-Pro** (Pre-Production) | Stable persistent public testnet | Persistent | **https://faucet.preprod.midnight.network/** (tNIGHT + tDUST) |
 | **Mainnet** | Production | Persistent | No |
+
+> **Pre-prod faucet**: paste any pre-prod address, claim tNIGHT + tDUST. Lace must be on `testnet-02` ("Pre-prod") before the balance is visible. Rate-limited per IP/address — back off on 429.
 
 Tashar built the workshop demo on **Pre-Pro**. For the MLH × Midnight 2026 hackathon, Lauren Lee recommended teams build on **DevNet** (the colloquial name encompassing Preview / Pre-Pro). **Avoid Mainnet during the hackathon**.
 
