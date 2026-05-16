@@ -554,7 +554,7 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
         return;
       }
       onUpdate(result.state);
-    }, 850);
+    }, 1100);
   }
 
   function handleAccept() {

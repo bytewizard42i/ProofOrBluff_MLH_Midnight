@@ -264,9 +264,9 @@ button.active {
   grid-template-rows: auto 1fr auto;
   gap: 1rem;
   min-width: 0;
-  /* Keep big glows (rank halo, banner box-shadows) from leaking into
-   * the scoreboard column to the right. */
-  overflow: hidden;
+  /* No overflow:hidden here — the player-card toss animation flies out
+   * to the LEFT toward the game log, which lives outside this column.
+   * Halo containment is handled inside .center instead. */
 }
 
 /* ────────── Scoreboard ────────── */
@@ -928,31 +928,73 @@ button.active {
 }
 
 /* ────────── 3D submit animation ────────── */
+/* ────────── Card toss animation ──────────
+ * On submit, each played card 3D-flips and arcs up-LEFT toward the
+ * game log panel, shrinks, and disappears in a puff of smoke (the
+ * ::after pseudo-element on the card). The translate values are
+ * viewport-based so the path naturally aims at the log panel, which
+ * lives in the upper-left of the play area on every reasonable layout.
+ */
 @keyframes card-toss {
   0% {
-    transform: translateY(-14px) scale(1.04) rotateY(0deg) rotateX(0deg);
+    transform: translate(0, 0) scale(1.04) rotateY(0deg) rotateX(0deg);
     opacity: 1;
   }
-  35% {
-    transform: translate(20vw, -30vh) scale(1.15) rotateY(180deg) rotateX(12deg);
+  30% {
+    transform: translate(-14vw, -22vh) scale(1.05) rotateY(180deg) rotateX(15deg);
     opacity: 1;
   }
-  70% {
-    transform: translate(0, -10vh) scale(0.9) rotateY(540deg) rotateX(-6deg);
-    opacity: 0.8;
+  60% {
+    transform: translate(-26vw, -32vh) scale(0.7) rotateY(540deg) rotateX(-8deg);
+    opacity: 0.95;
+  }
+  82% {
+    transform: translate(-32vw, -36vh) scale(0.32) rotateY(720deg) rotateX(15deg);
+    opacity: 0.45;
   }
   100% {
-    transform: translate(0, 0) scale(0.5) rotateY(720deg);
+    transform: translate(-34vw, -38vh) scale(0.08) rotateY(720deg);
     opacity: 0;
   }
 }
 
+/* Smoke puff that expands at the very end of the toss, blooming out
+ * from the card's final position. Triggered as a separate animation
+ * on the same element so the timing is independent of the 3D flip. */
+@keyframes card-smoke {
+  0%, 72% { opacity: 0; transform: scale(0.2); }
+  82%     { opacity: 1; transform: scale(1.2); }
+  92%     { opacity: 0.7; transform: scale(2.1); }
+  100%    { opacity: 0; transform: scale(3); }
+}
+
 .card.tossing {
-  animation: card-toss 0.85s cubic-bezier(0.5, 0, 0.6, 1) forwards;
+  animation: card-toss 1.1s cubic-bezier(0.55, 0, 0.35, 1) forwards;
   pointer-events: none;
   transform-style: preserve-3d;
   backface-visibility: visible;
   z-index: 10;
+  position: relative;
+}
+
+.card.tossing::after {
+  content: '';
+  position: absolute;
+  inset: -36px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at center,
+    rgba(235, 235, 245, 0.95) 0%,
+    rgba(210, 210, 225, 0.6)  30%,
+    rgba(170, 170, 190, 0.25) 55%,
+    transparent 75%
+  );
+  filter: blur(10px);
+  opacity: 0;
+  pointer-events: none;
+  /* Smoke runs alongside the toss; the keyframes hold it invisible
+   * until the card is near its destination. */
+  animation: card-smoke 1.1s ease-out forwards;
 }
 
 .card.disabled {
