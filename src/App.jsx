@@ -13,6 +13,12 @@ import {
   stopBackgroundMusic,
 } from './sounds.js';
 import {
+  speak,
+  cancelSpeech,
+  setSpeechMuted,
+  isSpeaking,
+} from './speech.js';
+import {
   initGame,
   playCards,
   acceptClaim,
@@ -620,24 +626,32 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
           </span>
         </div>
 
-        {state.status === 'playing' && (state.turn === 'ai' || state.lastPlay?.player === 'ai') && (
+        {state.status === 'playing' && state.lastPlay?.player === 'ai' && (
+          // Ai has an active CLAIM on the table — show the number of cards
+          // they JUST PLAYED (their representation), independent of total
+          // hand size. Capped by engine's MAX_CLAIM, so always ≤ 4.
           <div className="ai-thinking">
             <div className="ai-thinking-text">
-              I have {state.aiHand.length} card{state.aiHand.length === 1 ? '' : 's'}
+              I have {state.lastPlay.claimedCount} card{state.lastPlay.claimedCount === 1 ? '' : 's'}
             </div>
             <div
               className="ai-thinking-cards"
-              style={{ '--count': state.aiHand.length }}
+              style={{ '--count': state.lastPlay.claimedCount }}
             >
-              {state.aiHand.map((card, i) => (
+              {Array.from({ length: state.lastPlay.claimedCount }).map((_, i) => (
                 <div
-                  key={card.id}
+                  key={i}
                   className="ai-thinking-card"
                   style={{ '--i': i }}
                   aria-hidden="true"
                 />
               ))}
             </div>
+          </div>
+        )}
+        {state.status === 'playing' && state.turn === 'ai' && !state.lastPlay && (
+          <div className="ai-thinking">
+            <div className="ai-thinking-text">Thinking…</div>
           </div>
         )}
 
@@ -847,8 +861,17 @@ export default function App() {
   });
   useEffect(() => {
     setAudioMuted(muted);
+    setSpeechMuted(muted); // same toggle silences the narrator too
     try { window.localStorage.setItem('pob.muted', muted ? '1' : '0'); } catch { /* noop */ }
   }, [muted]);
+
+  // Poll the TTS engine 5x/sec so we can gate the Ai turn until the
+  // narrator finishes reading the previous outcome aloud.
+  const [speechBusy, setSpeechBusy] = useState(false);
+  useEffect(() => {
+    const id = setInterval(() => setSpeechBusy(isSpeaking()), 200);
+    return () => clearInterval(id);
+  }, []);
 
   // First-gesture audio unlock. Browsers require a user interaction
   // before AudioContext can play, so we listen for the first click/key
@@ -921,6 +944,26 @@ export default function App() {
       setDisplayedRank(state.currentRank);
     }
   }, [state, visibleLogCount, totalLogCount, displayedRank]);
+
+  // Narrate each newly revealed log entry in the British female voice.
+  // Uses its own cursor so it never races the sound watcher below.
+  const lastSpokenRef = useRef(0);
+  useEffect(() => {
+    if (!state) return;
+    while (lastSpokenRef.current < visibleLogCount) {
+      const entry = state.log[lastSpokenRef.current];
+      lastSpokenRef.current += 1;
+      if (entry && !entry.startsWith('⚠️')) speak(entry);
+    }
+  }, [visibleLogCount, state]);
+
+  // Reset narration cursor on new game.
+  useEffect(() => {
+    if (totalLogCount === 0) {
+      lastSpokenRef.current = 0;
+      cancelSpeech();
+    }
+  }, [totalLogCount]);
 
   // Play casino sound effects + set the result banner as outcome log
   // entries reveal. We diff against the previous reveal count so each
@@ -1019,10 +1062,15 @@ export default function App() {
   useEffect(() => {
     if (!state || state.status !== 'playing') return;
     if (state.turn !== 'ai') return;
-    // Hold off on Ai's next action until every queued log entry has
-    // finished revealing. This way the player sees the outcome of the
-    // previous play before the next hand starts.
+    // Hold off on Ai's next action until:
+    //  (a) every queued log entry has finished revealing,
+    //  (b) the narrator has finished reading them aloud,
+    //  (c) the big result banner has cleared (auto-fades after 3.5s).
+    // This way the entire previous turn's output finishes before the
+    // next one begins.
     if (visibleLogCount < totalLogCount) return;
+    if (speechBusy) return;
+    if (banner) return;
 
     // Case A: Ai must decide accept/challenge of player's claim.
     // Variable delay 0.25–3.0s simulates instinct / deliberation.
@@ -1081,7 +1129,7 @@ export default function App() {
       }, delay);
       return () => clearTimeout(t);
     }
-  }, [state, settings.difficulty, settings.mode, visibleLogCount, totalLogCount]);
+  }, [state, settings.difficulty, settings.mode, visibleLogCount, totalLogCount, speechBusy, banner]);
 
   return (
     <div className="app">
