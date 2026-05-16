@@ -141,23 +141,29 @@ function decidePlay({ aiHand, requiredRank, difficulty = 'medium', mode = 'home'
   let cardsToPlay;
   let isBluff;
 
+  // Hard cap on how many cards the AI claims in a single play. A 52-card
+  // deck has only 4 of each rank, so claiming more than 4 of the same
+  // rank is impossible and would be a tell. Matches the player's
+  // "select 1-4 cards" limit too.
+  const MAX_CLAIM = 4;
+
   if (matchingCards.length > 0) {
     // AI has matching cards — decide whether to play them honestly or bluff anyway
     if (Math.random() < profile.bluffChance && aiHand.length > matchingCards.length) {
       // Bluff: play some non-matching cards instead (strategic deception)
       const nonMatching = aiHand.filter(c => c.rank !== requiredRank);
-      const bluffCount = Math.min(Math.floor(Math.random() * 3) + 1, nonMatching.length);
+      const bluffCount = Math.min(Math.floor(Math.random() * MAX_CLAIM) + 1, nonMatching.length, MAX_CLAIM);
       cardsToPlay = nonMatching.slice(0, bluffCount);
       isBluff = true;
     } else {
       // Play honestly — some or all matching cards
-      const playCount = Math.min(matchingCards.length, Math.floor(Math.random() * 3) + 1);
+      const playCount = Math.min(matchingCards.length, Math.floor(Math.random() * MAX_CLAIM) + 1, MAX_CLAIM);
       cardsToPlay = matchingCards.slice(0, playCount);
       isBluff = false;
     }
   } else {
     // No matching cards — must bluff
-    const bluffCount = Math.min(Math.floor(Math.random() * 3) + 1, aiHand.length);
+    const bluffCount = Math.min(Math.floor(Math.random() * MAX_CLAIM) + 1, aiHand.length, MAX_CLAIM);
     cardsToPlay = aiHand.slice(0, bluffCount);
     isBluff = true;
   }
