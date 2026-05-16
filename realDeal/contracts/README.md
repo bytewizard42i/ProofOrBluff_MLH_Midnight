@@ -10,7 +10,7 @@
 
 | File | Purpose | Lines | Exported circuits |
 |------|---------|-------|-------------------|
-| `proof-or-bluff.compact` | The match engine — state machine, commit-reveal seeding, ZK challenge resolution, wager escrow latch | ~900 | `createMatch`, `joinMatch`, `revealSeed`, `playCards`, `acceptClaim`, `challengeClaim`, `resolveChallenge`, `forfeitStalledChallenge`, `claimPayout`, `getMatch`, `getMatchPhase`, `getWinner` |
+| `proof-or-bluff.compact` | The match engine — state machine, commit-reveal seeding, ZK challenge resolution, native Zswap wager escrow | ~1100 | `createMatch`, `joinMatch`, `revealSeed`, `playCards`, `acceptClaim`, `challengeClaim`, `resolveChallenge`, `forfeitStalledChallenge`, `cancelUnjoinedMatch`, `forfeitAbandonedMatch`, `claimPayout`, `getMatch`, `getMatchPhase`, `getWinner` |
 | `player-stats.compact` | Persistent per-player stats — rank points (ELO), achievements, streaks, tournament gating | ~400 | `getOrCreatePlayerRecord`, `recordMatchResult`, `recordChallengeOutcome`, `advanceSeason`, `getPlayerRecord`, `proveRankAtLeast`, `proveMatchesPlayedAtLeast`, `proveAchievementUnlocked`, `getRankTier`, `proveTierAtLeast` |
 
 The two contracts are **independent** — neither imports the other. The game backend wires them together:
@@ -29,16 +29,18 @@ The two contracts are **independent** — neither imports the other. The game ba
 │   mode=STANDARD,        │          │                         │
 │   wager=5 DUST,         │          │                         │
 │   p1EntropyCommit,      │          │                         │
-│   now                   │          │                         │
+│   now,                  │          │                         │
+│   coin                  │          │                         │
 │ ) → matchId             │          │                         │
 │                         │          │ joinMatch(              │
 │                         │  ←──────┤   matchId,              │
-│                         │          │   p2EntropyCommit)      │
+│                         │          │   p2EntropyCommit,      │
+│                         │          │   coin)                 │
 │                         │          │                         │
 │ revealSeed(             │  (either │                         │
 │   matchId,              │  side can│                         │
 │   p1Entropy, p2Entropy, │  call)   │                         │
-│   startingRank          │          │                         │
+│   startingRank, now     │          │                         │
 │ )                       │          │                         │
 │                         │          │                         │
 │ ══ now in PLAYING phase — p1 goes first ══                   │
@@ -47,13 +49,14 @@ The two contracts are **independent** — neither imports the other. The game ba
 │   matchId,              │          │                         │
 │   commit=hash(cards),   │          │                         │
 │   claimedRank=2,        │          │                         │
-│   claimedCount=1        │          │                         │
+│   claimedCount=1,       │          │                         │
+│   now                   │          │                         │
 │ )                       │          │                         │
-│                         │          │ acceptClaim(matchId)    │
+│                         │          │ acceptClaim(matchId, now)│
 │                         │  ←──────┤   OR                     │
-│                         │          │ challengeClaim(matchId) │
+│                         │          │ challengeClaim(matchId, now) │
 │                         │          │                         │
-│ resolveChallenge(matchId) → Boolean (only on challenge)      │
+│ resolveChallenge(matchId, now) → Boolean (only on challenge) │
 │   └── witness: private cards+salts                            │
 │   └── returns true if claim was honest, false if bluff        │
 │                         │          │                         │
@@ -108,11 +111,22 @@ The `demoLand` engine has an additional `+1 successful bluff` bonus when the opp
 
 ---
 
-## Wager / Escrow (MVP)
+## Wager / Escrow
 
-The match contract tracks `wagerAmount` (notional, in DUST) and a one-shot `escrowReleased` latch after `GAMEOVER`. Actual fund movement is handled off-chain via the SDK in MVP — the game backend holds the escrow, checks the on-chain latch, and releases funds.
+The match contract now uses **native Zswap shielded escrow** for wagered matches:
 
-A future revision will wire **Zswap native-token escrow** directly into the contract (both players send DUST to the contract on `createMatch`/`joinMatch`, winner pulls it via `claimPayout`). That requires the Zswap token integration pattern to be validated on v0.30 first.
+- `createMatch` receives the creator's shielded native-token wager.
+- `joinMatch` receives the joiner's matching native-token wager and merges it into the match pot.
+- `claimPayout` sends the full contract-held pot to the winner after `GAMEOVER`.
+
+The contract pins deposits to `nativeToken()` and also checks that the joiner's coin color matches the stored pot color. This prevents a player from satisfying the value check with a worthless custom token.
+
+Refund and stall protection:
+
+- `cancelUnjoinedMatch` lets the creator cancel a phase-0 match and receive the initial pot back.
+- `forfeitAbandonedMatch` ends a stalled `PLAYING` turn after timeout and awards the pot to the non-abandoning player.
+
+Privacy tradeoff: `wagerAmount` is public match metadata in the realDeal path because the contract must compare the shielded coin value against the required wager.
 
 ---
 
@@ -144,10 +158,9 @@ A future revision will wire **Zswap native-token escrow** directly into the cont
 
 1. **Hand membership proof** — MVP trusts the `claimedCount` hand-size subtraction on the honor system. A Merkle-tree hand commitment with membership proof would eliminate the trust gap.
 2. **Deck fairness proof** — The commit-reveal seed is anti-manipulation but not anti-stacking. Shuffled-deck ZK proofs are a research problem; most card games rely on client-side fairness. Acceptable for MVP.
-3. **On-chain escrow** — Replace the `escrowReleased` latch with direct Zswap token escrow.
-4. **Cross-contract writes** — Today the backend operator writes to `player-stats.compact`. A future version lets the match contract call stats directly once cross-contract composition is validated on v0.30.
-5. **PvE permanence** — Solo-vs-AI results currently count toward rank. A `"ranked" : Boolean` flag would let practice matches be excluded from ELO.
-6. **Replay integrity** — No on-chain replay hash yet. Replays stored off-chain could be hash-committed on `playCards` for verifiable shareable replays.
+3. **Cross-contract writes** — Today the backend operator writes to `player-stats.compact`. A future version lets the match contract call stats directly once cross-contract composition is validated on v0.30.
+4. **PvE permanence** — Solo-vs-AI results currently count toward rank. A `"ranked" : Boolean` flag would let practice matches be excluded from ELO.
+5. **Replay integrity** — No on-chain replay hash yet. Replays stored off-chain could be hash-committed on `playCards` for verifiable shareable replays.
 
 ---
 

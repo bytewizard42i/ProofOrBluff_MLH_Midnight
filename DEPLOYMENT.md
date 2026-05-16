@@ -79,16 +79,18 @@ ProofOrBluff_MLH_Midnight/
 
 | Phase | Contract call | UI component | Proof? |
 |-------|---------------|--------------|--------|
-| 1. Create match | `createMatch(mode, wager, p1EntropyCommit, now)` | `Lobby → CreateMatchModal` | No |
-| 2. Join | `joinMatch(matchId, p2EntropyCommit)` | `Lobby → Join Button` | No |
-| 3. Reveal seed | `revealSeed(matchId, p1Seed, p2Seed)` | `Table → auto` | No |
-| 4. Play cards | `playCards(matchId, cardCommits)` | `Table → DealCards animation` | No |
-| 5. Challenge | `challengeClaim(matchId, claimIdx)` | `ChallengePanel → Challenge` | No |
-| 6. Resolve | `resolveChallenge(matchId, witness, reveal)` | `ChallengePanel → auto-submit` | **Yes (~5-10s)** |
-| 7. Forfeit | `forfeitStalledChallenge(matchId)` | `Table → forfeit timer` | No |
+| 1. Create match | `createMatch(mode, wager, p1EntropyCommit, now, coin)` | `Lobby → CreateMatchModal` | No |
+| 2. Join | `joinMatch(matchId, p2EntropyCommit, coin)` | `Lobby → Join Button` | No |
+| 3. Reveal seed | `revealSeed(matchId, p1Seed, p2Seed, startingRank, now)` | `Table → auto` | No |
+| 4. Play cards | `playCards(matchId, cardCommit, rank, count, now)` | `Table → DealCards animation` | No |
+| 5. Challenge | `challengeClaim(matchId, now)` | `ChallengePanel → Challenge` | No |
+| 6. Resolve | `resolveChallenge(matchId, now)` + private witness | `ChallengePanel → auto-submit` | **Yes (~5-10s)** |
+| 7. Forfeit | `forfeitStalledChallenge(matchId, now, timeout)` / `forfeitAbandonedMatch(matchId, now, timeout)` | `Table → forfeit timer` | No |
 | 8. Payout | `claimPayout(matchId)` | `Table → Claim Winnings` | No |
 
 The ZK proof in step 6 is where proof server load concentrates. Provision accordingly (2-4 vCPU recommended for multi-match concurrency).
+
+**realDeal wager privacy note**: `wagerAmount` is public on-chain match metadata. The native Zswap escrow path must compare each shielded coin value against the required wager, so wager size is intentionally auditable even though the pot is held and paid out through shielded Zswap coins.
 
 ---
 

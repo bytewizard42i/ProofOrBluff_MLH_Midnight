@@ -28,12 +28,14 @@
 //   WAITING_FOR_PLAYER_TWO (0)
 //     └── createMatch
 //         └── [caller is solo; waits for joinMatch]
+//         └── cancelUnjoinedMatch (refunds creator before join)
 //   WAITING_FOR_ENTROPY_REVEAL (1)
 //     └── joinMatch
 //         └── [both entropy commits on-chain; off-chain reveal happens]
 //   PLAYING (2)
 //     └── revealSeed  (once)    → sets combinedSeed + startingRank
 //         └── playCards         → moves to AWAITING_RESPONSE
+//         └── forfeitAbandonedMatch (timeout) → GAMEOVER
 //   AWAITING_RESPONSE (3)
 //     ├── acceptClaim           → back to PLAYING (passive player's turn)
 //     └── challengeClaim        → challenged player must resolve
@@ -41,7 +43,7 @@
 //         │                       OR moves to GAMEOVER if threshold hit
 //         └── forfeitStalledChallenge  (timeout) → same terminal logic
 //   GAMEOVER (4)
-//     └── claimPayout           → winner latches the escrow flag
+//     └── claimPayout           → winner receives the escrowed pot
 //
 // SCORING (realDeal — ZK-enforceable)
 //   Scoring events that require NO ground truth (no challenge fired):
@@ -55,9 +57,10 @@
 //    because score swings on challenges dominate.)
 //
 // WAGER / ESCROW
-//   MVP records the notional `wagerAmount` and a one-shot `escrowReleased`
-//   latch after GAMEOVER. Actual fund movement is handled off-chain via the
-//   SDK. A future contract revision will wire Zswap native-token escrow.
+//   createMatch and joinMatch each receive one shielded wager coin. The
+//   contract pins both deposits to Midnight's native token, stores the merged
+//   match pot as a contract-held Zswap coin, and sends the full pot to the
+//   winner after GAMEOVER.
 //
 // INTEGRATION WITH DIDzMonolith
 //   - Players are identified by their Midnight wallet key. The optional
@@ -104,7 +107,7 @@ struct MatchState {
   playerTwo: ZswapCoinPublicKey;
   mode: Uint<8>;                   // GameMode
   winThreshold: Uint<8>;           // 10, 15, or 20 (or 0 for empty-hand modes)
-  wagerAmount: Uint<64>;           // notional wager; off-chain settlement
+  wagerAmount: Uint<64>;           // each player's required wager
   createdAt: Uint<64>;
 
   // Commit-reveal for the shuffle seed --------------------------------------
@@ -117,6 +120,7 @@ struct MatchState {
   phase: Uint<8>;                  // MatchPhase
   activePlayerIdx: Uint<8>;        // 0 = p1, 1 = p2 — who acts next
   currentRank: Uint<8>;            // 0..12 → "2".."A"
+  lastActionAt: Uint<64>;          // timestamp used for abandonment timeout
 
   // Pending play (awaiting accept or challenge) ----------------------------
   lastClaimRank: Uint<8>;
@@ -137,6 +141,7 @@ struct MatchState {
   // Terminal state ---------------------------------------------------------
   winner: Uint<8>;                 // 0 = none, 1 = p1, 2 = p2
   escrowReleased: Boolean;
+  potHasCoin: Boolean;
 }
 
 // Hash input for deterministic match-id derivation
@@ -184,6 +189,7 @@ witness revealLastPlay(): PlayRevealWitness;
 // ============================================================================
 
 export ledger matches: Map<Bytes<32>, MatchState>;
+export ledger matchPots: Map<Bytes<32>, QualifiedShieldedCoinInfo>;
 export ledger totalMatchesCreated: Counter;
 export ledger totalMatchesCompleted: Counter;
 export ledger totalChallengesIssued: Counter;
@@ -273,11 +279,17 @@ export circuit createMatch(
   mode: Uint<8>,
   wagerAmount: Uint<64>,
   p1EntropyCommit: Bytes<32>,
-  currentTime: Uint<64>
+  currentTime: Uint<64>,
+  coin: ShieldedCoinInfo
 ): Bytes<32> {
   const caller = ownPublicKey();
   const matchId = computeMatchId(caller, mode, currentTime);
   assert(!matches.member(disclose(matchId)), "Match already exists");
+  const receivedCoin = disclose(coin);
+  assert(receivedCoin.color == nativeToken(), "Creator coin must be native token");
+  assert(receivedCoin.value == (disclose(wagerAmount) as Uint<128>),
+    "Creator coin value must match wager");
+  receiveShielded(receivedCoin);
 
   const handSize = initialHandSizeForMode(mode);
   const threshold = winThresholdForMode(mode);
@@ -298,6 +310,7 @@ export circuit createMatch(
     phase: 0,
     activePlayerIdx: 0,
     currentRank: 0,
+    lastActionAt: currentTime,
 
     lastClaimRank: 0,
     lastClaimCount: 0,
@@ -314,10 +327,16 @@ export circuit createMatch(
     p2HandSize: handSize,
 
     winner: 0,
-    escrowReleased: false
+    escrowReleased: false,
+    potHasCoin: true
   };
 
   matches.insert(disclose(matchId), disclose(state));
+  matchPots.insertCoin(
+    disclose(matchId),
+    receivedCoin,
+    right<ZswapCoinPublicKey, ContractAddress>(kernel.self())
+  );
   totalMatchesCreated.increment(1);
   return disclose(matchId);
 }
@@ -326,13 +345,25 @@ export circuit createMatch(
 // WAITING_FOR_ENTROPY_REVEAL.
 export circuit joinMatch(
   matchId: Bytes<32>,
-  p2EntropyCommit: Bytes<32>
+  p2EntropyCommit: Bytes<32>,
+  coin: ShieldedCoinInfo
 ): [] {
   assert(matches.member(disclose(matchId)), "Match not found");
   const m = matches.lookup(disclose(matchId));
   assert(disclose(m.phase) == (0 as Uint<8>), "Match not open for joining");
+  assert(m.potHasCoin, "Match pot not initialized");
+  assert(matchPots.member(disclose(matchId)), "Match pot not found");
+  const receivedCoin = disclose(coin);
+  assert(receivedCoin.color == nativeToken(), "Joiner coin must be native token");
+  assert(receivedCoin.value == (disclose(m.wagerAmount) as Uint<128>),
+    "Joiner coin value must match wager");
   const joiner = ownPublicKey();
   assert(joiner != m.playerOne, "Creator cannot join as player two");
+
+  const existingPot = matchPots.lookup(disclose(matchId));
+  assert(receivedCoin.color == existingPot.color, "Joiner token must match pot token");
+  receiveShielded(receivedCoin);
+  const mergedPot = mergeCoinImmediate(existingPot, receivedCoin);
 
   const updated = MatchState {
     playerOne: m.playerOne,
@@ -350,6 +381,7 @@ export circuit joinMatch(
     phase: 1,
     activePlayerIdx: 0,
     currentRank: m.currentRank,
+    lastActionAt: m.lastActionAt,
 
     lastClaimRank: m.lastClaimRank,
     lastClaimCount: m.lastClaimCount,
@@ -366,9 +398,15 @@ export circuit joinMatch(
     p2HandSize: m.p2HandSize,
 
     winner: m.winner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
   matches.insert(disclose(matchId), disclose(updated));
+  matchPots.insertCoin(
+    disclose(matchId),
+    mergedPot,
+    right<ZswapCoinPublicKey, ContractAddress>(kernel.self())
+  );
 }
 
 // Both players reveal their entropy off-chain and pass it here. The
@@ -379,7 +417,8 @@ export circuit revealSeed(
   matchId: Bytes<32>,
   p1Entropy: Bytes<32>,
   p2Entropy: Bytes<32>,
-  startingRank: Uint<8>
+  startingRank: Uint<8>,
+  currentTime: Uint<64>
 ): [] {
   assert(matches.member(disclose(matchId)), "Match not found");
   const m = matches.lookup(disclose(matchId));
@@ -413,6 +452,7 @@ export circuit revealSeed(
     phase: 2,
     activePlayerIdx: 0,
     currentRank: startingRank,
+    lastActionAt: currentTime,
 
     lastClaimRank: m.lastClaimRank,
     lastClaimCount: m.lastClaimCount,
@@ -429,7 +469,8 @@ export circuit revealSeed(
     p2HandSize: m.p2HandSize,
 
     winner: m.winner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
   matches.insert(disclose(matchId), disclose(updated));
 }
@@ -446,7 +487,8 @@ export circuit playCards(
   matchId: Bytes<32>,
   playCommit: Bytes<32>,
   claimedRank: Uint<8>,
-  claimedCount: Uint<8>
+  claimedCount: Uint<8>,
+  currentTime: Uint<64>
 ): [] {
   assert(matches.member(disclose(matchId)), "Match not found");
   const m = matches.lookup(disclose(matchId));
@@ -491,6 +533,7 @@ export circuit playCards(
     phase: 3,
     activePlayerIdx: nextIdx,
     currentRank: m.currentRank,
+    lastActionAt: currentTime,
 
     lastClaimRank: claimedRank,
     lastClaimCount: claimedCount,
@@ -507,7 +550,8 @@ export circuit playCards(
     p2HandSize: newP2Hand,
 
     winner: m.winner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
   matches.insert(disclose(matchId), disclose(updated));
 }
@@ -515,7 +559,7 @@ export circuit playCards(
 // Passive player accepts the claim: the committed cards now belong to
 // the central pile, the required rank advances, and it's the acceptor's
 // turn to play next.
-export circuit acceptClaim(matchId: Bytes<32>): [] {
+export circuit acceptClaim(matchId: Bytes<32>, currentTime: Uint<64>): [] {
   assert(matches.member(disclose(matchId)), "Match not found");
   const m = matches.lookup(disclose(matchId));
   assert(disclose(m.phase) == (3 as Uint<8>), "No pending play to accept");
@@ -547,6 +591,7 @@ export circuit acceptClaim(matchId: Bytes<32>): [] {
     phase: 2,
     activePlayerIdx: callerIdx,
     currentRank: advancedRank,
+    lastActionAt: currentTime,
 
     lastClaimRank: 0,
     lastClaimCount: 0,
@@ -563,7 +608,8 @@ export circuit acceptClaim(matchId: Bytes<32>): [] {
     p2HandSize: m.p2HandSize,
 
     winner: m.winner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
   matches.insert(disclose(matchId), disclose(updated));
 }
@@ -600,6 +646,7 @@ export circuit challengeClaim(matchId: Bytes<32>, currentTime: Uint<64>): [] {
     phase: m.phase,
     activePlayerIdx: m.activePlayerIdx,
     currentRank: m.currentRank,
+    lastActionAt: currentTime,
 
     lastClaimRank: m.lastClaimRank,
     lastClaimCount: m.lastClaimCount,
@@ -616,7 +663,8 @@ export circuit challengeClaim(matchId: Bytes<32>, currentTime: Uint<64>): [] {
     p2HandSize: m.p2HandSize,
 
     winner: m.winner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
   matches.insert(disclose(matchId), disclose(updated));
   totalChallengesIssued.increment(1);
@@ -633,7 +681,7 @@ export circuit challengeClaim(matchId: Bytes<32>, currentTime: Uint<64>): [] {
 //      challenger as the new active player.
 // ONLY the boolean result is disclosed. The actual card ranks are never
 // revealed on-chain in either outcome.
-export circuit resolveChallenge(matchId: Bytes<32>): Boolean {
+export circuit resolveChallenge(matchId: Bytes<32>, currentTime: Uint<64>): Boolean {
   assert(matches.member(disclose(matchId)), "Match not found");
   const m = matches.lookup(disclose(matchId));
   assert(disclose(m.phase) == (3 as Uint<8>), "No challenge in progress");
@@ -723,6 +771,7 @@ export circuit resolveChallenge(matchId: Bytes<32>): Boolean {
     phase: newPhase,
     activePlayerIdx: nextActive,
     currentRank: advancedRank,
+    lastActionAt: currentTime,
 
     lastClaimRank: 0,
     lastClaimCount: 0,
@@ -739,7 +788,8 @@ export circuit resolveChallenge(matchId: Bytes<32>): Boolean {
     p2HandSize: nextP2Hand,
 
     winner: newWinner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
 
   matches.insert(disclose(matchId), disclose(updated));
@@ -809,6 +859,7 @@ export circuit forfeitStalledChallenge(
     phase: newPhase,
     activePlayerIdx: nextActive,
     currentRank: advancedRank,
+    lastActionAt: currentTime,
 
     lastClaimRank: 0,
     lastClaimCount: 0,
@@ -825,24 +876,154 @@ export circuit forfeitStalledChallenge(
     p2HandSize: nextP2Hand,
 
     winner: newWinner,
-    escrowReleased: m.escrowReleased
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
   };
   matches.insert(disclose(matchId), disclose(updated));
   if (newCompleted) { totalMatchesCompleted.increment(1); }
 }
 
-// After GAMEOVER, the winner flips the escrow flag. Actual wager payout
-// happens off-chain via the SDK in MVP; this latch prevents double-claims
-// and provides an on-chain audit trail.
+// Creator can cancel before a second player joins. This prevents a one-player
+// match from locking the initial wager forever.
+export circuit cancelUnjoinedMatch(matchId: Bytes<32>): [] {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  const m = matches.lookup(disclose(matchId));
+  assert(disclose(m.phase) == (0 as Uint<8>), "Match already joined");
+  assert(!m.escrowReleased, "Escrow already released");
+  assert(m.potHasCoin, "Match pot already released");
+  assert(matchPots.member(disclose(matchId)), "Match pot not found");
+
+  const caller = ownPublicKey();
+  assert(caller == m.playerOne, "Only creator can cancel");
+  const pot = matchPots.lookup(disclose(matchId));
+
+  sendShielded(
+    pot,
+    left<ZswapCoinPublicKey, ContractAddress>(disclose(m.playerOne)),
+    disclose(pot.value)
+  );
+
+  const updated = MatchState {
+    playerOne: m.playerOne,
+    playerTwo: m.playerTwo,
+    mode: m.mode,
+    winThreshold: m.winThreshold,
+    wagerAmount: m.wagerAmount,
+    createdAt: m.createdAt,
+
+    p1EntropyCommit: m.p1EntropyCommit,
+    p2EntropyCommit: m.p2EntropyCommit,
+    combinedSeed: m.combinedSeed,
+    seedFinalized: m.seedFinalized,
+
+    phase: 4,
+    activePlayerIdx: m.activePlayerIdx,
+    currentRank: m.currentRank,
+    lastActionAt: m.lastActionAt,
+
+    lastClaimRank: m.lastClaimRank,
+    lastClaimCount: m.lastClaimCount,
+    lastPlayCommit: m.lastPlayCommit,
+    lastPlayerIdx: m.lastPlayerIdx,
+    hasPendingPlay: m.hasPendingPlay,
+    challengeCalledAt: m.challengeCalledAt,
+    isChallenged: m.isChallenged,
+
+    pileSize: m.pileSize,
+    p1Score: m.p1Score,
+    p2Score: m.p2Score,
+    p1HandSize: m.p1HandSize,
+    p2HandSize: m.p2HandSize,
+
+    winner: 0,
+    escrowReleased: true,
+    potHasCoin: false
+  };
+  matches.insert(disclose(matchId), disclose(updated));
+  matchPots.remove(disclose(matchId));
+}
+
+// If the active player abandons a PLAYING turn with no pending claim, anyone
+// can end the match after timeout. The non-abandoning player wins the pot.
+export circuit forfeitAbandonedMatch(
+  matchId: Bytes<32>,
+  currentTime: Uint<64>,
+  timeoutSeconds: Uint<64>
+): [] {
+  assert(matches.member(disclose(matchId)), "Match not found");
+  const m = matches.lookup(disclose(matchId));
+  assert(disclose(m.phase) == (2 as Uint<8>), "Match not in PLAYING");
+  assert(!m.hasPendingPlay, "Pending play must use challenge timeout");
+  assert(!m.escrowReleased, "Escrow already released");
+  assert(m.potHasCoin, "Match pot already released");
+  assert(matchPots.member(disclose(matchId)), "Match pot not found");
+  assert(disclose(currentTime) >= disclose((m.lastActionAt + timeoutSeconds) as Uint<64>),
+    "Abandonment window still open");
+
+  const forfeitingIdx = m.activePlayerIdx;
+  const newWinner: Uint<8> = (forfeitingIdx == (0 as Uint<8>)) ? 2 : 1;
+
+  const updated = MatchState {
+    playerOne: m.playerOne,
+    playerTwo: m.playerTwo,
+    mode: m.mode,
+    winThreshold: m.winThreshold,
+    wagerAmount: m.wagerAmount,
+    createdAt: m.createdAt,
+
+    p1EntropyCommit: m.p1EntropyCommit,
+    p2EntropyCommit: m.p2EntropyCommit,
+    combinedSeed: m.combinedSeed,
+    seedFinalized: m.seedFinalized,
+
+    phase: 4,
+    activePlayerIdx: m.activePlayerIdx,
+    currentRank: m.currentRank,
+    lastActionAt: currentTime,
+
+    lastClaimRank: m.lastClaimRank,
+    lastClaimCount: m.lastClaimCount,
+    lastPlayCommit: m.lastPlayCommit,
+    lastPlayerIdx: m.lastPlayerIdx,
+    hasPendingPlay: false,
+    challengeCalledAt: 0,
+    isChallenged: false,
+
+    pileSize: m.pileSize,
+    p1Score: m.p1Score,
+    p2Score: m.p2Score,
+    p1HandSize: m.p1HandSize,
+    p2HandSize: m.p2HandSize,
+
+    winner: newWinner,
+    escrowReleased: m.escrowReleased,
+    potHasCoin: m.potHasCoin
+  };
+  matches.insert(disclose(matchId), disclose(updated));
+  totalMatchesCompleted.increment(1);
+}
+
+// After GAMEOVER, the winner receives the contract-held shielded pot. The
+// escrow latch prevents double-claims and provides an on-chain audit trail.
 export circuit claimPayout(matchId: Bytes<32>): [] {
   assert(matches.member(disclose(matchId)), "Match not found");
   const m = matches.lookup(disclose(matchId));
   assert(disclose(m.phase) == (4 as Uint<8>), "Match not in GAMEOVER");
+  assert(disclose(m.winner) != (0 as Uint<8>), "Winner not set");
   assert(!m.escrowReleased, "Payout already claimed");
+  assert(m.potHasCoin, "Match pot already released");
+  assert(matchPots.member(disclose(matchId)), "Match pot not found");
 
   const caller = ownPublicKey();
   const expected: ZswapCoinPublicKey = (m.winner == (1 as Uint<8>)) ? m.playerOne : m.playerTwo;
   assert(caller == expected, "Only the winner can claim");
+  const pot = matchPots.lookup(disclose(matchId));
+
+  sendShielded(
+    pot,
+    left<ZswapCoinPublicKey, ContractAddress>(disclose(expected)),
+    disclose(pot.value)
+  );
 
   const updated = MatchState {
     playerOne: m.playerOne,
@@ -860,6 +1041,7 @@ export circuit claimPayout(matchId: Bytes<32>): [] {
     phase: m.phase,
     activePlayerIdx: m.activePlayerIdx,
     currentRank: m.currentRank,
+    lastActionAt: m.lastActionAt,
 
     lastClaimRank: m.lastClaimRank,
     lastClaimCount: m.lastClaimCount,
@@ -876,9 +1058,11 @@ export circuit claimPayout(matchId: Bytes<32>): [] {
     p2HandSize: m.p2HandSize,
 
     winner: m.winner,
-    escrowReleased: true
+    escrowReleased: true,
+    potHasCoin: false
   };
   matches.insert(disclose(matchId), disclose(updated));
+  matchPots.remove(disclose(matchId));
 }
 
 // ============================================================================
