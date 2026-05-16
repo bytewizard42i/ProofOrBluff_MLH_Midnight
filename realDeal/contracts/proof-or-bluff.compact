@@ -227,6 +227,25 @@ circuit verifyEntropyAgainstCommit(
   return computed == commit;
 }
 
+// Off-chain helper exposed to JS via `pureCircuits.commitEntropy(...)`.
+// Lets the client compute the same commit the contract will recompute
+// during revealSeed, so they stay in sync without rolling our own
+// persistentHash in JS.
+export pure circuit commitEntropy(entropy: Bytes<32>): Bytes<32> {
+  return persistentHash<EntropyCommitInput>(EntropyCommitInput {
+    separator: pad(32, "pob:entropy:v1"),
+    entropy: entropy
+  });
+}
+
+// Off-chain helper for `playCards`: hash the PlayRevealWitness so the
+// client can submit `playCommit` without reproducing the algorithm. The
+// contract recomputes this hash inside `resolveChallenge` and compares
+// against `lastPlayCommit`.
+export pure circuit commitPlay(reveal: PlayRevealWitness): Bytes<32> {
+  return persistentHash<PlayRevealWitness>(reveal);
+}
+
 // Hand-size configuration per mode (RULES.md).
 circuit initialHandSizeForMode(mode: Uint<8>): Uint<32> {
   if (mode == (0 as Uint<8>)) { return 5; }   // CASUAL

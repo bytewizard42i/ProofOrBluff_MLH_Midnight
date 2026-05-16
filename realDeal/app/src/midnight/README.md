@@ -12,21 +12,27 @@ contract calls. Read order:
    midnight-js provider bundle, deploys-or-finds the contract, and
    exposes one wrapper per exported circuit.
 
-## Status
+## Status (Phase 2 — all circuits wired)
 
 | Circuit | Status | Notes |
 |---|---|---|
-| `createMatch` | ✅ wired | Generates 32-byte entropy + commit, native-token coin, persists match-id ↔ entropy mapping in localStorage. |
-| `joinMatch` | 🟡 stub | Phase 2. Needs joiner coin + saved p2 entropy. |
-| `revealSeed` | 🟡 stub | Phase 2. Both entropies + deterministic startingRank. |
-| `playCards` | 🟡 stub | Phase 2. Requires the play-commit hashing pattern from `engine.js`. |
-| `acceptClaim` | 🟡 stub | Phase 2. |
-| `challengeClaim` | 🟡 stub | Phase 2. |
-| `resolveChallenge` | 🟡 stub | Phase 2. **This is the ZK showcase** — install a PlayRevealWitness via `setPendingReveal(...)` before calling. |
-| `cancelUnjoinedMatch` | 🟡 stub | Phase 2. |
-| `forfeitAbandonedMatch` | 🟡 stub | Phase 2. |
-| `forfeitStalledChallenge` | 🟡 stub | Phase 2. |
-| `claimPayout` | 🟡 stub | Phase 2. Final pot transfer. |
+| `createMatch` | ✅ wired | 32-byte entropy + `pureCircuits.commitEntropy(entropy)` for the commit, native-token coin, persists `pob:realdeal:entropy:{matchId}:p1`. |
+| `joinMatch` | ✅ wired | Same commit pattern as p1; persists under `:p2`. |
+| `revealSeed` | ✅ wired | Reads both entropies from localStorage. The opponent's hex must be pasted in via `gameProvider.importEntropy(role, hex)` first. |
+| `playCards` | ✅ wired | Builds a `PlayRevealWitness` from 1-4 actual ranks + per-slot fresh salts, hashes it via `pureCircuits.commitPlay(reveal)`, persists the witness under `pob:realdeal:play:{matchId}` for later resolveChallenge. |
+| `acceptClaim` | ✅ wired | Just `(matchId, currentTime)`. |
+| `challengeClaim` | ✅ wired | Just `(matchId, currentTime)`. |
+| `resolveChallenge` | ✅ wired | **The ZK showcase.** Loads the persisted `PlayRevealWitness`, stages it via `setPendingReveal(...)`, calls the circuit, returns `{ honest: boolean }`. The witness never leaves the circuit; only the boolean outcome is disclosed. |
+| `cancelUnjoinedMatch` | ✅ wired | Player One refund if no Player Two ever joins. |
+| `forfeitAbandonedMatch` | ✅ wired | Defaults to a 24h timeout. |
+| `forfeitStalledChallenge` | ✅ wired | Defaults to a 1h timeout. |
+| `claimPayout` | ✅ wired | Winner pulls the shielded pot. |
+| `getMatch` / `getMatchPhase` / `getWinner` | ✅ wired | Read-only views via the indexer. |
+
+Two off-chain helpers exposed for the React layer:
+
+- `importEntropy(matchId, role, entropyHex)` — paste an opponent's entropy hex into your localStorage so `revealSeed` can find it.
+- `setPendingReveal(reveal) / clearPendingReveal()` — manual witness staging, only needed if you bypass `gameProvider.resolveChallenge()`.
 
 ## How a circuit ends up wired
 

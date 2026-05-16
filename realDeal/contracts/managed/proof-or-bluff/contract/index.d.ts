@@ -190,9 +190,33 @@ export type ProvableCircuits<PS> = {
 }
 
 export type PureCircuits = {
+  commitEntropy(entropy_0: Uint8Array): Uint8Array;
+  commitPlay(reveal_0: { count: bigint,
+                         rank0: bigint,
+                         salt0: Uint8Array,
+                         rank1: bigint,
+                         salt1: Uint8Array,
+                         rank2: bigint,
+                         salt2: Uint8Array,
+                         rank3: bigint,
+                         salt3: Uint8Array
+                       }): Uint8Array;
 }
 
 export type Circuits<PS> = {
+  commitEntropy(context: __compactRuntime.CircuitContext<PS>,
+                entropy_0: Uint8Array): __compactRuntime.CircuitResults<PS, Uint8Array>;
+  commitPlay(context: __compactRuntime.CircuitContext<PS>,
+             reveal_0: { count: bigint,
+                         rank0: bigint,
+                         salt0: Uint8Array,
+                         rank1: bigint,
+                         salt1: Uint8Array,
+                         rank2: bigint,
+                         salt2: Uint8Array,
+                         rank3: bigint,
+                         salt3: Uint8Array
+                       }): __compactRuntime.CircuitResults<PS, Uint8Array>;
   createMatch(context: __compactRuntime.CircuitContext<PS>,
               mode_0: bigint,
               wagerAmount_0: bigint,
