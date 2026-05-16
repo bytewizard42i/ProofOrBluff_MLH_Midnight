@@ -18,6 +18,14 @@ import { getContractApi } from './midnight/contract.js';
  * a hacker can still play single-player demoLand-style during dev. As
  * Phase 2 wires each circuit, the providers/realdeal/ layer will swap
  * those calls over.
+ *
+ * TODO Phase 3: replace this bare-bones banner with an admin-only
+ * MidnightVitals diagnostic panel (live ping of proof server / indexer /
+ * node / wallet + interaction log) once MidnightVitals ships as a real
+ * npm package. POB is committed to being consumer #2 of MidnightVitals.
+ *   Plan & open questions: realDeal/docs/PHASE_3_MIDNIGHTVITALS.md
+ *   Source repo:           /home/js/DIDzMonolith/MidnightVitals
+ *   Current source-of-truth (until extracted): DiscoveryManagement
  */
 
 const STYLES = {
