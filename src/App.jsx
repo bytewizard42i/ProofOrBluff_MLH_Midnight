@@ -106,6 +106,128 @@ function CardBack({ label = 'POB' }) {
 }
 
 // ────────────────────────────────────────────────────────────
+// Scoreboard + Bluff probability
+// ────────────────────────────────────────────────────────────
+
+/**
+ * How many copies of each rank exist in the active deck.
+ * Home mode = 1 standard deck = 4 of each rank.
+ * Casino mode = 5 decks = 20 of each rank.
+ */
+function copiesPerRank(mode) {
+  return mode === 'casino' ? 20 : 4;
+}
+
+/**
+ * Estimate the probability that the Ai's most recent claim is a bluff.
+ * Combines three signals:
+ *   1. Hard impossibility — if the player holds enough of the claimed rank
+ *      that the Ai literally can't have what they claim, P = 1.
+ *   2. Pressure — the closer the claim is to the maximum the Ai could
+ *      truthfully have, the more suspicious it is.
+ *   3. Observed bluff rate — historical fraction of Ai plays revealed as
+ *      bluffs via challenges, blended toward a mode-specific prior.
+ *
+ * Returns null if there is no Ai claim to evaluate, otherwise:
+ *   { p: 0..1, reason: string, stats: {...} }
+ */
+function estimateAiBluffProbability(state, settings) {
+  if (!state.lastPlay || state.lastPlay.player !== 'ai') return null;
+  const { claimedRank, claimedCount } = state.lastPlay;
+  const copies = copiesPerRank(state.mode);
+  const playerHasOfRank = state.playerHand.filter((c) => c.rank === claimedRank).length;
+  const pileHasOfRank = state.pile.filter((c) => c.rank === claimedRank).length;
+  const aiCanHaveAtMost = Math.max(0, copies - playerHasOfRank - pileHasOfRank);
+
+  if (claimedCount > aiCanHaveAtMost) {
+    return {
+      p: 1.0,
+      reason: `Impossible: only ${aiCanHaveAtMost} ${claimedRank}${aiCanHaveAtMost === 1 ? '' : 's'} could exist in the Ai's hand. They claim ${claimedCount}.`,
+      stats: { playerHasOfRank, aiCanHaveAtMost, copies },
+    };
+  }
+
+  // Difficulty prior — matches the bluffChance in the scripted Ai.
+  const PRIOR = { easy: 0.2, medium: 0.35, hard: 0.5 };
+  const prior = PRIOR[settings.difficulty] ?? 0.35;
+
+  // Observed bluff rate (Laplace-smoothed so a single observation doesn't dominate).
+  const observedNum = state.stats.aiBluffsCaught + 1;
+  const observedDen = state.stats.aiPlays + 2;
+  const observed = observedNum / observedDen;
+
+  // Blend prior and observed (more weight to observed as plays accumulate).
+  const weight = Math.min(1, state.stats.aiPlays / 6);
+  const baseRate = (1 - weight) * prior + weight * observed;
+
+  // Pressure: claimedCount / aiCanHaveAtMost in [0, 1]. Adds up to +0.45.
+  const pressure = aiCanHaveAtMost > 0 ? Math.min(1, claimedCount / aiCanHaveAtMost) : 1;
+  const pressureBonus = 0.45 * pressure;
+
+  let p = Math.min(0.97, baseRate + pressureBonus * 0.6);
+  if (claimedCount === aiCanHaveAtMost) p = Math.min(0.95, p + 0.1);
+
+  const reason =
+    `Ai bluff rate so far: ${state.stats.aiBluffsCaught}/${state.stats.aiPlays} caught` +
+    ` (${settings.difficulty} prior ${(prior * 100).toFixed(0)}%).` +
+    ` You hold ${playerHasOfRank} ${claimedRank}${playerHasOfRank === 1 ? '' : 's'};` +
+    ` they claim ${claimedCount} of a possible ${aiCanHaveAtMost}.`;
+
+  return { p, reason, stats: { playerHasOfRank, aiCanHaveAtMost, copies } };
+}
+
+function Scoreboard({ state }) {
+  const aiCount = state.aiHand.length;
+  const youCount = state.playerHand.length;
+  const { rounds, aiBluffsCaught, playerBluffsCaught, playerFailedChallenges } = state.stats;
+  return (
+    <aside className="scoreboard">
+      <div className="score-cell ai">
+        <div className="score-label">Ai cards</div>
+        <div className="score-number">{aiCount}</div>
+      </div>
+      <div className="score-stats">
+        <div className="stat">
+          <span className="stat-label">Rounds</span>
+          <span className="stat-value">{rounds}</span>
+        </div>
+        <div className="stat good">
+          <span className="stat-label">🟢 Bluffs caught</span>
+          <span className="stat-value">{aiBluffsCaught}</span>
+        </div>
+        <div className="stat bad">
+          <span className="stat-label">🔴 You got caught</span>
+          <span className="stat-value">{playerBluffsCaught}</span>
+        </div>
+        <div className="stat bad">
+          <span className="stat-label">❌ Wrong calls</span>
+          <span className="stat-value">{playerFailedChallenges}</span>
+        </div>
+      </div>
+      <div className="score-cell you">
+        <div className="score-label">Your cards</div>
+        <div className="score-number">{youCount}</div>
+      </div>
+    </aside>
+  );
+}
+
+function BluffOddsBadge({ estimate }) {
+  if (!estimate) return null;
+  const pct = Math.round(estimate.p * 100);
+  const cls = pct >= 70 ? 'high' : pct >= 40 ? 'med' : 'low';
+  return (
+    <div className={`bluff-odds ${cls}`}>
+      <div className="odds-headline">
+        <span className="odds-label">Bluff odds</span>
+        <span className="odds-value">{pct}%</span>
+      </div>
+      <div className="odds-reason">{estimate.reason}</div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
 // Tutorial / How-to-play
 // ────────────────────────────────────────────────────────────
 
@@ -272,6 +394,9 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
   // IDs of cards currently mid-toss-animation. Held in local state so the
   // visual flourish completes before the new game state replaces them.
   const [tossingIds, setTossingIds] = useState(new Set());
+  // Toggleable bluff-odds analyzer that appears when the Ai is awaiting
+  // your decision. Persists across rounds so the player can leave it on.
+  const [showOdds, setShowOdds] = useState(false);
 
   // Reset selection when it becomes a new turn / round
   useEffect(() => {
@@ -281,6 +406,12 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
 
   // Detect pairs (same-rank groups of 2+) in the current player hand.
   const pairMap = useMemo(() => detectPairs(state.playerHand), [state.playerHand]);
+
+  // Compute bluff odds whenever the Ai is the one waiting on you.
+  const bluffEstimate = useMemo(
+    () => estimateAiBluffProbability(state, settings),
+    [state, settings]
+  );
 
   const playerCanPlay =
     state.status === 'playing' &&
@@ -353,6 +484,7 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
 
   return (
     <div className="table">
+      <div className="table-main">
       {/* Ai area */}
       <div className="ai-area">
         <div className="ai-avatar">🎭</div>
@@ -360,9 +492,6 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
           {aiDialogue || (state.turn === 'ai' ? 'Studying the table…' : 'Your move.')}
         </div>
         <div className="ai-meta">
-          <span className="count">{state.aiHand.length}</span>
-          <span>cards in Ai hand</span>
-          <br />
           <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
             {settings.difficulty} · {settings.mode}
           </span>
@@ -396,14 +525,24 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
         </div>
 
         {playerMustRespond && (
-          <div className="center-actions">
-            <button className="primary" onClick={handleAccept}>
-              ✅ Accept
-            </button>
-            <button className="danger" onClick={handleChallenge}>
-              🎲 Prove it!
-            </button>
-          </div>
+          <>
+            <div className="center-actions">
+              <button className="primary" onClick={handleAccept}>
+                ✅ Accept
+              </button>
+              <button className="danger" onClick={handleChallenge}>
+                🎲 Prove it!
+              </button>
+              <button
+                className={showOdds ? 'active' : ''}
+                onClick={() => setShowOdds((v) => !v)}
+                title="Toggle the Ai bluff probability analyzer"
+              >
+                {showOdds ? '🔍 Hide odds' : '🔍 Bluff odds'}
+              </button>
+            </div>
+            {showOdds && <BluffOddsBadge estimate={bluffEstimate} />}
+          </>
         )}
       </div>
 
@@ -441,6 +580,9 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue }) {
           </div>
         )}
       </div>
+      </div> {/* /table-main */}
+
+      <Scoreboard state={state} />
     </div>
   );
 }

@@ -55,6 +55,16 @@ function initGame(mode = 'home') {
     winner: null,
     log: [],
     lastPlay: null,
+    // Running scoreboard. Updated by acceptClaim() and challenge(). Used by
+    // the UI scoreboard panel and the bluff-probability estimator.
+    stats: {
+      rounds: 0,             // completed exchanges (accept or challenge resolution)
+      aiPlays: 0,            // total Ai plays observed (denominator for bluff rate)
+      aiBluffsCaught: 0,     // times you successfully called out an Ai bluff
+      playerBluffsCaught: 0, // times you got caught bluffing
+      playerFailedChallenges: 0, // times you challenged a TRUE claim (your bad call)
+      aiFailedChallenges: 0, // times Ai challenged your honest claim
+    },
   };
 
   state.log.push(`Game started in ${mode === 'casino' ? 'Casino' : 'Home'} Mode.`);
@@ -108,6 +118,11 @@ function playCards(state, { cardsPlayed, claimedRank, claimedCount, player }) {
     player,
   };
 
+  // Track Ai play count so the bluff-probability estimator has a denominator
+  if (player === 'ai') {
+    newState.stats = { ...state.stats, aiPlays: state.stats.aiPlays + 1 };
+  }
+
   // Don't add to pile yet — opponent gets chance to challenge
   newState.status = 'playing';
   newState.turn = player === 'player' ? 'ai' : 'player';
@@ -131,6 +146,7 @@ function acceptClaim(state) {
   newState.pile = [...state.pile, ...state.lastPlay.cards];
   newState.currentRank = getNextRank(state.currentRank);
   newState.lastPlay = null;
+  newState.stats = { ...state.stats, rounds: state.stats.rounds + 1 };
 
   const who = state.turn === 'player' ? 'You' : 'AI';
   newState.log.push(`${who} accepted the claim. Pile now has ${newState.pile.length} card(s). Next rank: ${newState.currentRank}.`);
@@ -157,6 +173,19 @@ function challenge(state) {
 
   const challenger = state.turn; // The person whose turn it is now is the one challenging
   const bluffer = state.lastPlay.player;
+
+  // Update scoreboard stats for this round.
+  const newStats = { ...state.stats, rounds: state.stats.rounds + 1 };
+  if (result.claimWasTrue) {
+    // Challenger was wrong.
+    if (challenger === 'player') newStats.playerFailedChallenges += 1;
+    else newStats.aiFailedChallenges += 1;
+  } else {
+    // Bluffer got caught.
+    if (bluffer === 'player') newStats.playerBluffsCaught += 1;
+    else newStats.aiBluffsCaught += 1;
+  }
+  newState.stats = newStats;
 
   if (result.claimWasTrue) {
     // Challenger loses — picks up the pile
