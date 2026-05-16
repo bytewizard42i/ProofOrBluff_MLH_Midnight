@@ -486,8 +486,13 @@ button.active {
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 1.5rem;
+  /* Allow the label and the rank to wrap onto two lines if the column
+   * gets tight (e.g. long handle + long rank like "Queen"). */
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
   text-align: center;
+  padding: 0 0.5rem;
+  max-width: 100%;
 }
 
 .required-rank-text {
@@ -559,10 +564,11 @@ button.active {
 
 .required-label {
   font-family: 'Cinzel', serif;
-  /* Scales with viewport so '<handle>, how many:' grows to fill the
-   * center area on wide screens but never wraps to a second line. */
-  font-size: clamp(1.3rem, 2.6vw, 2.4rem);
-  letter-spacing: 0.12em;
+  /* Scales with viewport. Smaller upper bound so that long handles
+   * (e.g. "Johnny51") plus long ranks (e.g. "Queen") fit the center
+   * column without truncating either. */
+  font-size: clamp(0.9rem, 1.6vw, 1.85rem);
+  letter-spacing: 0.1em;
   text-transform: none;
   color: var(--text-dim);
   font-weight: 600;
@@ -602,8 +608,9 @@ button.active {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.4rem 1.4rem;
+  padding: 0.3rem 0.9rem;
   isolation: isolate;
+  max-width: 100%;
 }
 
 .rank-glow {
@@ -630,7 +637,8 @@ button.active {
 
 .required-rank .rank {
   font-family: 'Cinzel', serif;
-  font-size: 5.5rem;
+  /* Responsive: shrinks for multi-letter words like "Queen". */
+  font-size: clamp(2.6rem, 5.5vw, 5.5rem);
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0.02em;
