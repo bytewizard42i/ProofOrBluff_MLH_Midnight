@@ -25,7 +25,7 @@ import {
   acceptClaim,
   challenge,
 } from '../demoLand/src/game/engine.js';
-import { formatClaim } from '../demoLand/src/game/rules.js';
+import { formatClaim, rankName } from '../demoLand/src/game/rules.js';
 import { RANKS } from '../demoLand/src/game/deck.js';
 import {
   decidePlay,
@@ -623,7 +623,7 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
           </span>
           <span className="rank-display">
             <span className="rank-glow" aria-hidden="true" />
-            <span className="rank">{displayedRank ?? state.currentRank}</span>
+            <span className="rank">{rankName(displayedRank ?? state.currentRank)}</span>
           </span>
         </div>
 
@@ -716,7 +716,7 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
             <span className="claim-summary">
               {selectedIds.size > 0
                 ? `Claim: ${formatClaim(selectedIds.size, state.currentRank)}`
-                : `Select 1-4 cards. You'll claim them as ${state.currentRank}s.`}
+                : `Select 1-4 cards. You'll claim them as ${rankName(state.currentRank, true)}.`}
             </span>
             <button
               className="primary"

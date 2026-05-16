@@ -97,10 +97,27 @@ function checkWinCondition(hand) {
  * Get a human-readable claim string.
  * e.g., "Two Kings" or "One Ace" or "Three 7s"
  */
+// Spelled-out display names for face cards and the ace. Used everywhere
+// claims are surfaced to the player: log lines, the big rank label, the
+// selection panel, the TTS narration.
+const RANK_NAMES = {
+  J: { single: 'Jack',  plural: 'Jacks'  },
+  Q: { single: 'Queen', plural: 'Queens' },
+  K: { single: 'King',  plural: 'Kings'  },
+  A: { single: 'Ace',   plural: 'Aces'   },
+};
+
+function rankName(rank, plural = false) {
+  if (RANK_NAMES[rank]) return plural ? RANK_NAMES[rank].plural : RANK_NAMES[rank].single;
+  // Numeric ranks: '6' -> '6es', everything else -> '<n>s'.
+  if (!plural) return rank;
+  return rank === '6' ? '6es' : `${rank}s`;
+}
+
 function formatClaim(count, rank) {
   const countWords = { 1: 'One', 2: 'Two', 3: 'Three', 4: 'Four' };
-  const rankPlural = rank === '6' ? '6es' : `${rank}s`;
-  return `${countWords[count] || count} ${count === 1 ? rank : rankPlural}`;
+  const word = rankName(rank, count !== 1);
+  return `${countWords[count] || count} ${word}`;
 }
 
 export {
@@ -109,4 +126,5 @@ export {
   applyChallengePenalty,
   checkWinCondition,
   formatClaim,
+  rankName,
 };

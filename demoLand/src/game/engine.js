@@ -9,7 +9,7 @@
  */
 
 import { createDeck, shuffleDeck, dealCards, getNextRank, RANKS } from './deck.js';
-import { validatePlay, resolveChallenge, checkWinCondition, formatClaim } from './rules.js';
+import { validatePlay, resolveChallenge, checkWinCondition, formatClaim, rankName } from './rules.js';
 
 /**
  * Game state shape:
@@ -68,7 +68,7 @@ function initGame(mode = 'home') {
   };
 
   state.log.push(`Game started in ${mode === 'casino' ? 'Casino' : 'Home'} Mode.`);
-  state.log.push(`${playerHand.length} cards each. First rank to declare: ${startingRank}.`);
+  state.log.push(`${playerHand.length} cards each. First rank to declare: ${rankName(startingRank)}.`);
 
   return state;
 }
@@ -149,7 +149,7 @@ function acceptClaim(state) {
   newState.stats = { ...state.stats, rounds: state.stats.rounds + 1 };
 
   const who = state.turn === 'player' ? 'You' : 'AI';
-  newState.log.push(`${who} accepted the claim. Pile now has ${newState.pile.length} card(s). Next rank: ${newState.currentRank}.`);
+  newState.log.push(`${who} accepted the claim. Pile now has ${newState.pile.length} card(s). Next rank: ${rankName(newState.currentRank)}.`);
 
   return { state: newState };
 }
