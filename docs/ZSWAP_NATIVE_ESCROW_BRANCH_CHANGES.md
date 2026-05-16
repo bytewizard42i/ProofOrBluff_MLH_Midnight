@@ -19,10 +19,13 @@ After this branch:
 
 1. `createMatch(...)` now accepts a `ShieldedCoinInfo` coin input.
    - The contract checks that the creator's deposited coin value matches `wagerAmount`.
+   - The contract checks that the creator's coin is `nativeToken()`.
    - The contract receives that shielded coin and stores it for the match.
 
 2. `joinMatch(...)` now also accepts a `ShieldedCoinInfo` coin input.
    - The joiner must deposit the same wager value.
+   - The joiner must deposit `nativeToken()`.
+   - The joiner's token color must match the existing stored pot.
    - The contract merges both players' shielded coins into a single contract-held pot.
 
 3. New ledger storage was added:
@@ -42,6 +45,10 @@ After this branch:
 6. State propagation was updated across match lifecycle circuits.
    - Every circuit that reconstructs `MatchState` now preserves `potHasCoin`.
 
+7. Refund and abandonment paths were added.
+   - `cancelUnjoinedMatch(matchId)` refunds the creator before anyone joins.
+   - `forfeitAbandonedMatch(matchId, currentTime, timeoutSeconds)` ends stalled `PLAYING` turns and lets the non-abandoning player claim the pot.
+
 ## What This Is Used For
 
 This change is used to make wagered matches settle **inside the Midnight contract flow**, not in a trusted off-chain service.
@@ -53,6 +60,8 @@ Practical use:
 - Contract holds both stakes privately as a shielded pot.
 - Game plays out normally.
 - Winner calls `claimPayout(...)` and receives pot directly from contract.
+- If match never gets a second player, creator can cancel and recover the deposit.
+- If active player abandons a `PLAYING` turn, timeout can end the match instead of locking funds.
 
 This makes `proof-or-bluff.compact` closer to a real money or tournament-ready game contract instead of only a gameplay proof contract.
 
@@ -122,8 +131,6 @@ This branch turns wagers from a **recorded promise** into a **contract-enforced 
 
 This branch improves payout custody and settlement. It does **not** yet add every future escrow feature, such as:
 
-- cancellation or refund flows
-- abandoned-match recovery
 - split payouts or fee extraction
 - richer tournament treasury logic
 

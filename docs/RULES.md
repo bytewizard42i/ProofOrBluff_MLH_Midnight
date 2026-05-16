@@ -26,6 +26,8 @@ The core mechanic: players take turns placing cards face-down and declaring what
 
 In the realDeal Midnight build, the challenge reveal becomes a zero-knowledge proof — the contract proves only the truth or falsehood of the claim, never the underlying cards.
 
+In wagered realDeal matches, `wagerAmount` is public on-chain metadata. This is the tradeoff for native Zswap escrow: the contract must verify that each shielded deposit matches the required wager while keeping custody and payout inside the Midnight flow.
+
 ---
 
 ## Game Modes (implemented)
