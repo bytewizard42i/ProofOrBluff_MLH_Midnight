@@ -28,55 +28,54 @@ This is not just a card game. It is a social-feeling loop with expressive Ai fac
 
 ---
 
-## Game Modes
+## Game Modes (current build)
 
-| Mode | Hand Size | Cards/Play | Win Condition | Session |
-|------|-----------|------------|---------------|---------|
-| **Casual** | 5 cards | 1-2 | First to 10 pts | 3-5 min |
-| **Standard (default)** | 7 cards | 1-3 | First to 15 pts | 5-10 min |
-| **Strategic** | 7 cards, no refill | 1-3 | Empty hand | 8-15 min |
-| **Classic** | 26 cards (split deck) | 1-4 | Empty hand | 20-45 min |
-| **Casino** | 7 cards, 5-deck shoe | 1-3 | First to 20 pts | 10-15 min |
+| Mode | Deck | Hand Size | Cards/Play | Win Condition |
+|------|------|-----------|------------|---------------|
+| **Home** *(default)* | 1 deck (52 cards) | 10 cards | 1-4 | Empty hand wins |
+| **Casino** | 5-deck shoe (260 cards) | 10 cards | 1-4 | Empty hand wins |
 
-See [RULES.md](docs/RULES.md) for complete rules, scoring system, rank progression, and the full recommended gameplay scenario.
+Both modes share the same rules; only the deck size differs. The Casino shoe neutralizes card counting and is the setup we'll lean on for the realDeal wagered match flow.
+
+> Additional modes (Casual / Standard / Strategic / Classic) and a point-based scoring system are designed but **not yet implemented** — see Part 2 of [RULES.md](docs/RULES.md) for the roadmap.
+
+See [RULES.md](docs/RULES.md) for the complete current ruleset, rank progression, and the full game flow.
 
 ---
 
-## The Game Loop (Standard Mode)
+## The Game Loop (current build)
 
 ```
-1. DEALER INTRO — Ai dealer shuffles on screen (covers proof server startup)
-   └── Player can watch tutorial or skip to the game
+1. SHUFFLE & DEAL
+   ├── Deck created (52 home / 260 casino)
+   ├── Fisher-Yates shuffle
+   ├── 10 cards → player, 10 cards → Ai
+   ├── Rest forms the draw deck (reshuffled before every draw)
+   ├── Random starting required rank
+   └── Pile starts empty
 
-2. CHARACTER SELECT — Pick your Ai opponent
-   ├── Choose gender and personality from a picture menu
-   ├── Choose difficulty: Easy / Medium / Hard
-   └── Choose mode: Casual / Standard / Strategic / Classic / Casino
+2. ACTIVE PLAYER ACTS
+   ├── PLAY 1-4 cards, declare current rank (true OR bluff)
+   └── OR PASS — draw 1 card, flip turn
 
-3. DEAL — 5 cards to Dead Pile, 7 cards each, rest to draw pile
-
-4. YOUR TURN (or Ai's turn)
-   ├── Select 1-3 cards from hand, place face-down on pile
-   └── Declare: "[N] [Rank]s" (must match the rank sequence)
-
-5. OPPONENT DECIDES
-   ├── ACCEPT → pile grows, bluffer scores +1 if lying
+3. OPPONENT RESPONDS (if a play was made)
+   ├── ACCEPT → pile grows, rank advances
    └── CHALLENGE → "Proof or Bluff!"
 
-6. CHALLENGE RESOLUTION
-   ├── Claim TRUE → challenger picks up pile, -1 pt
-   └── Claim FALSE → bluffer picks up pile, challenger +3/+2 pts
-   └── Only the disputed claim is verified (ZK proof in realDeal)
+4. CHALLENGE RESOLUTION
+   ├── Cards revealed (demoLand) / ZK proof (realDeal)
+   ├── Active pile → DISCARDED (out of play permanently)
+   ├── Deck reshuffled
+   ├── Loser draws pileLength cards (min 2 on empty-pile bluff)
+   └── Rank advances
 
-7. DRAW PHASE — Active player draws back up to 7 cards
-
-8. WIN → First player to reach 15 points wins
-
-Optional events trigger between turns:
-   ├── Lie Detector button flash (+1 pt if caught)
-   ├── Shot Glass reaction challenge (-1 pt if missed)
-   └── Truth or Dare prompt (future)
+5. CHECK WIN
+   ├── Player hand empty? → YOU WIN
+   ├── Ai hand empty? → AI WINS
+   └── Otherwise → back to step 2
 ```
+
+> Difficulty profiles (Easy / Medium / Hard) are scaffolded in `demoLand/src/game/ai/`; the UI currently defaults to Medium and does not yet expose a picker.
 
 ---
 
