@@ -33,13 +33,18 @@ import { validatePlay, resolveChallenge, checkWinCondition, formatClaim, rankNam
 const HAND_SIZE = 10;
 
 function initGame(mode = 'home') {
-  const deck = createDeck(mode);
-  const shuffled = shuffleDeck(deck);
+  const fullDeck = createDeck(mode);
+  const shuffled = shuffleDeck(fullDeck);
   // Deal a fixed-size hand to each side so the game stays brisk and pair
   // detection feels meaningful. Remaining cards stay out of play until a
   // challenge feeds them back via the pile.
   const playerHand = shuffled.slice(0, HAND_SIZE);
   const aiHand = shuffled.slice(HAND_SIZE, HAND_SIZE * 2);
+  // Remaining cards form the draw deck. Used when:
+  //  - a player passes their turn (draw 1)
+  //  - someone is caught bluffing with an empty pile (minimum 2-card
+  //    penalty enforced by topping up from the deck)
+  const deck = shuffled.slice(HAND_SIZE * 2);
 
   // Random starting rank
   const startingRank = RANKS[Math.floor(Math.random() * RANKS.length)];
@@ -48,6 +53,7 @@ function initGame(mode = 'home') {
     mode,
     playerHand,
     aiHand,
+    deck,
     pile: [],
     currentRank: startingRank,
     turn: 'player', // Player goes first
@@ -155,6 +161,50 @@ function acceptClaim(state) {
 }
 
 /**
+ * Pass: voluntarily skip your turn. The passing player draws 1 card
+ * from the deck (if any are left) and the turn flips to the opponent.
+ * The current rank, pile, and any pending claim are untouched.
+ *
+ * Pre-conditions:
+ *   - It is your turn.
+ *   - There is no claim awaiting your response (no lastPlay against you).
+ *     If a claim is on the table, the player must Accept or Challenge —
+ *     passing on a claim isn't allowed.
+ */
+function passTurn(state, { player } = { player: 'player' }) {
+  if (state.status !== 'playing') return { error: 'Game is not active.' };
+  if (state.turn !== player) return { error: 'Not your turn.' };
+  if (state.lastPlay && state.lastPlay.player !== player) {
+    return { error: 'You must accept or challenge the current claim first.' };
+  }
+
+  const drawCount = Math.min(1, state.deck.length);
+  const drawn = state.deck.slice(0, drawCount);
+  const remainingDeck = state.deck.slice(drawCount);
+
+  const newState = { ...state };
+  if (player === 'player') {
+    newState.playerHand = [...state.playerHand, ...drawn];
+  } else {
+    newState.aiHand = [...state.aiHand, ...drawn];
+  }
+  newState.deck = remainingDeck;
+  // Pass control. lastPlay is left as-is (null in the only legal case).
+  newState.turn = player === 'player' ? 'ai' : 'player';
+  newState.log = [...state.log];
+  if (drawCount > 0) {
+    newState.log.push(
+      `${player === 'player' ? 'You pass' : 'AI passes'} — pick up 1 card from the deck.`
+    );
+  } else {
+    newState.log.push(
+      `${player === 'player' ? 'You pass' : 'AI passes'} — the deck is empty.`
+    );
+  }
+  return { state: newState };
+}
+
+/**
  * Challenge the last claim — "Proof or Bluff!"
  * Resolves via direct reveal (demoLand) or ZK proof (realDeal).
  */
@@ -215,6 +265,25 @@ function challenge(state) {
     newState.log.push(`CAUGHT BLUFFING! The claim was false. ${who} up ${fullPile.length} card(s).`);
     if (pileWasEmpty) {
       newState.log.push(`The pile was empty — ${who.toLowerCase()} up the ${fullPile.length} card(s) just played as the penalty.`);
+      // Minimum bluff penalty: when there's no pile to scoop, the
+      // bluffer must draw additional cards from the deck so the bluff
+      // still costs them at least 2 cards total. Otherwise a 1-card
+      // bluff on an empty pile would be nearly cost-free.
+      const MIN_BLUFF_PENALTY = 2;
+      const shortfall = Math.max(0, MIN_BLUFF_PENALTY - fullPile.length);
+      const extraDraw = Math.min(shortfall, state.deck.length);
+      if (extraDraw > 0) {
+        const drawn = state.deck.slice(0, extraDraw);
+        newState.deck = state.deck.slice(extraDraw);
+        if (bluffer === 'player') {
+          newState.playerHand = [...newState.playerHand, ...drawn];
+        } else {
+          newState.aiHand = [...newState.aiHand, ...drawn];
+        }
+        newState.log.push(
+          `Minimum bluff penalty: ${who.toLowerCase()} up ${extraDraw} additional card(s) from the deck.`
+        );
+      }
     }
   }
 
@@ -241,4 +310,5 @@ export {
   playCards,
   acceptClaim,
   challenge,
+  passTurn,
 };

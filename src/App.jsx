@@ -27,6 +27,7 @@ import {
   playCards,
   acceptClaim,
   challenge,
+  passTurn,
 } from '../demoLand/src/game/engine.js';
 import { formatClaim, rankName } from '../demoLand/src/game/rules.js';
 import { RANKS } from '../demoLand/src/game/deck.js';
@@ -586,6 +587,15 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
     onUpdate(result.state);
   }
 
+  function handlePass() {
+    playSubmitClick();
+    const result = passTurn(state, { player: 'player' });
+    if (result.error) return;
+    setSelectedIds(new Set());
+    setAiDialogue('');
+    onUpdate(result.state);
+  }
+
   function handleChallenge() {
     playSubmitClick();
     const result = challenge(state);
@@ -752,6 +762,17 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
               onClick={handlePlay}
             >
               Play & Claim
+            </button>
+            <button
+              className="secondary"
+              onClick={handlePass}
+              title={
+                state.deck.length > 0
+                  ? `Skip your turn — draw 1 card from the deck (${state.deck.length} left).`
+                  : 'Skip your turn — the deck is empty so you draw nothing.'
+              }
+            >
+              ⏭️ Pass
             </button>
           </div>
         )}
