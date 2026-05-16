@@ -602,6 +602,27 @@ function GameTable({ state, settings, onUpdate, aiDialogue, setAiDialogue, displ
           </span>
         </div>
 
+        {state.turn === 'ai' && !state.lastPlay && state.status === 'playing' && (
+          <div className="ai-thinking">
+            <div className="ai-thinking-text">
+              I have {state.aiHand.length} card{state.aiHand.length === 1 ? '' : 's'}
+            </div>
+            <div
+              className="ai-thinking-cards"
+              style={{ '--count': state.aiHand.length }}
+            >
+              {state.aiHand.map((card, i) => (
+                <div
+                  key={card.id}
+                  className="ai-thinking-card"
+                  style={{ '--i': i }}
+                  aria-hidden="true"
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="pile-display">
           <div className="pile-stack">
             {pileSize > 0 ? (

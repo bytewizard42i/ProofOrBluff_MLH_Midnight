@@ -634,6 +634,72 @@ button.active {
   gap: 1.5rem;
 }
 
+/* ────────── Ai "thinking" display ──────────
+ * Shown in the center area while the Ai is choosing its play. A short
+ * line of dialogue plus a fanned row of face-down cards that visualises
+ * how many the Ai is still holding.
+ */
+.ai-thinking {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.25rem 0 0.4rem;
+  animation: log-in 0.35s ease-out both;
+}
+
+.ai-thinking-text {
+  font-family: 'Cinzel', serif;
+  font-style: italic;
+  font-size: 1.2rem;
+  color: #d8d8e0;
+  text-shadow: 0 0 10px rgba(216, 216, 224, 0.45);
+  letter-spacing: 0.04em;
+}
+
+/* The row of mini face-down cards. We use overlapping divs styled like
+ * .card-back so they look like a fan in the Ai's hand. The CSS variable
+ * --i (set inline on each card) drives the horizontal offset so longer
+ * hands fan out further without ever overflowing the table. */
+.ai-thinking-cards {
+  position: relative;
+  height: 70px;
+  /* Width grows with the largest reasonable hand; flex/center keeps the
+   * fan visually balanced regardless of count. */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 200px;
+}
+
+.ai-thinking-card {
+  position: absolute;
+  width: 42px;
+  height: 60px;
+  border-radius: 6px;
+  /* Same fabric pattern as .card-back but smaller. */
+  background:
+    repeating-linear-gradient(
+      45deg,
+      rgba(157, 78, 221, 0.85) 0 8px,
+      rgba(108, 38, 168, 0.85) 8px 16px
+    );
+  border: 1.5px solid rgba(255, 214, 10, 0.55);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
+  /* Each card is shifted by --i * step from the leftmost. We center the
+   * whole fan by translating back by half the total span. Step shrinks
+   * if the hand is huge so it always fits in ~220px. */
+  --step: 14px;
+  --span: calc(var(--count, 10) * var(--step));
+  transform: translateX(calc(var(--i) * var(--step) - var(--span) / 2));
+  transition: transform 0.25s ease-out;
+}
+
+/* Subtle hover-spread for fun. */
+.ai-thinking-cards:hover .ai-thinking-card {
+  --step: 18px;
+}
+
 /* ────────── Play result banner ──────────
  * Big bold call-out that appears below the pile after a play resolves
  * (e.g. "Your bluff succeeded!", "The Ai was bluffing!"). Auto-clears
