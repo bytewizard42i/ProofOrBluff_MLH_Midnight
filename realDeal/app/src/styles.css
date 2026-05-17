@@ -639,6 +639,15 @@ button.active {
   100% { filter: brightness(1) drop-shadow(0 0 0px currentColor); }
 }
 
+/* Subtle slide+fade for freshly arrived log lines in the proof-server
+   panel. Plays once on each line in the current batch; combined with
+   the alternating teal/amber tint, it makes new arrivals impossible
+   to miss without being twitchy. */
+@keyframes pob-line-arrive {
+  0%   { transform: translateY(-3px); opacity: 0.45; }
+  100% { transform: translateY(0);    opacity: 1;    }
+}
+
 @keyframes handle-attention-pulse {
   0%, 100% {
     border-color: var(--border);

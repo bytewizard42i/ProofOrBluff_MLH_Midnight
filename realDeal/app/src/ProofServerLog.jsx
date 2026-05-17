@@ -87,7 +87,10 @@ function classifyLine(line) {
   const tm = body.match(/took ([\d.]+s)/);
   if (tm) timing = tm[1];
 
-  return { ts, kind, body, timing };
+  // Full raw line is a stable identifier for diffing across polls.
+  // docker logs prefix each line with a high-resolution timestamp so
+  // two lines that look identical (e.g. two GET / pings) still differ.
+  return { key: text, raw: text, ts, kind, body, timing };
 }
 
 export default function ProofServerLog() {
@@ -107,6 +110,13 @@ export default function ProofServerLog() {
   // a tiny pulse reads as "I just checked" without being annoying.
   const [flashTick, setFlashTick] = useState(0);
   const intervalRef = useRef(null);
+  // Tracks which lines we've already seen and what batch they arrived
+  // in. Each *batch* of new lines (i.e. every poll that produced new
+  // entries) gets a unique numeric id; consecutive batches alternate
+  // colors in the UI so the viewer can see at a glance which lines
+  // landed together and which arrived a moment later.
+  const seenRef = useRef(new Map()); // key -> { arrivedAt, batchId }
+  const batchCounterRef = useRef(0);
   // Live drag/resize state held in refs so mousemove handlers don't
   // trigger React re-renders on every pixel.
   const dragRef = useRef(null);
@@ -140,7 +150,53 @@ export default function ProofServerLog() {
         // expect a stack-like ordering where new info pushes down.
         const parsed = text.split('\n').map(classifyLine).filter(Boolean);
         parsed.reverse();
-        setLines(parsed);
+
+        // Diff against what we've already seen so we can mark fresh
+        // arrivals with an attention color. The set of keys that are
+        // genuinely new in this poll forms a "batch" — all marked
+        // with the same batchId, which the renderer translates into
+        // an accent color that alternates by parity (even -> teal,
+        // odd -> amber). The viewer sees a clear visual break every
+        // time a new wave of log lines arrives.
+        const seen = seenRef.current;
+        const now = Date.now();
+        const newKeys = [];
+        for (const ln of parsed) {
+          if (!seen.has(ln.key)) newKeys.push(ln.key);
+        }
+        if (newKeys.length > 0) {
+          batchCounterRef.current += 1;
+          const batchId = batchCounterRef.current;
+          for (const k of newKeys) {
+            seen.set(k, { arrivedAt: now, batchId });
+          }
+        }
+        // Prune anything that's no longer in the visible tail so the
+        // map can't grow unbounded over a long session.
+        const visible = new Set(parsed.map((l) => l.key));
+        for (const k of seen.keys()) {
+          if (!visible.has(k)) seen.delete(k);
+        }
+
+        // Attach freshness metadata to each line so the renderer can
+        // colour it. Lines we've never recorded (shouldn't happen
+        // after the loop above, but be defensive) get batchId 0.
+        const enriched = parsed.map((l) => {
+          const meta = seen.get(l.key) || { arrivedAt: now, batchId: 0 };
+          return {
+            ...l,
+            arrivedAt: meta.arrivedAt,
+            batchId: meta.batchId,
+            // Used by the renderer to pick a colour. We only highlight
+            // the two most recent batches so the panel doesn't end up
+            // a rainbow of stale colours after a long idle period.
+            highlightBatch:
+              meta.batchId === batchCounterRef.current ? 'current'
+              : meta.batchId === batchCounterRef.current - 1 ? 'previous'
+              : null,
+          };
+        });
+        setLines(enriched);
         setLastTick(new Date());
         setFlashTick((n) => n + 1);
       } catch (err) {
@@ -399,16 +455,41 @@ export default function ProofServerLog() {
             proofs being generated here.
           </div>
         )}
-        {lines.map((ln, i) => (
+        {lines.map((ln, i) => {
+          // Highlight styling for fresh batches. The most recent
+          // batch (highlightBatch === 'current') gets the brighter
+          // tint; the prior batch gets a calmer tint of the *other*
+          // alternating colour so adjacent batches always contrast.
+          // After two more polls a line falls out of both windows
+          // and renders in the default style.
+          const accent = batchAccent(ln.batchId);
+          const isCurrent = ln.highlightBatch === 'current';
+          const isPrevious = ln.highlightBatch === 'previous';
+          const highlightBg = isCurrent
+            ? accent.bgStrong
+            : isPrevious
+              ? accent.bgSoft
+              : 'transparent';
+          const highlightBorder = (isCurrent || isPrevious)
+            ? `3px solid ${accent.bar}`
+            : '3px solid transparent';
+          return (
           <div
-            key={i}
+            key={ln.key || i}
+            // Re-mounting on the current batch (via the arrivedAt
+            // key) re-fires the slide-in animation so freshly
+            // arrived lines visibly enter from the top of the list.
             style={{
               display: 'grid',
               gridTemplateColumns: '52px 1fr',
               columnGap: 6,
-              padding: '2px 0',
+              padding: '2px 4px',
               borderTop: i === 0 ? 'none' : '1px dashed #261d4a',
+              borderLeft: highlightBorder,
+              background: highlightBg,
               color: kindColor(ln.kind),
+              transition: 'background 0.6s ease, border-left-color 0.6s ease',
+              animation: isCurrent ? 'pob-line-arrive 0.45s ease-out' : 'none',
             }}
           >
             <span style={{ color: '#7a6db5', fontVariantNumeric: 'tabular-nums' }}>
@@ -427,7 +508,8 @@ export default function ProofServerLog() {
               {ln.body}
             </span>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <footer
@@ -563,6 +645,18 @@ function pillStyle(bg, fg) {
     marginRight: 4,
     letterSpacing: '0.03em',
   };
+}
+
+// Two-tone accent palette for fresh-arrival highlighting. Batches
+// alternate between these two colours by parity of the batchId, so
+// each new wave of log lines visibly contrasts with the wave that
+// came before it. `bgStrong` is for the most recent batch, `bgSoft`
+// is for the previous batch (same hue, lower opacity), and `bar` is
+// the left-border accent rail.
+function batchAccent(batchId) {
+  const teal  = { bar: '#5cd0ff', bgStrong: 'rgba(92,208,255,0.18)', bgSoft: 'rgba(92,208,255,0.07)' };
+  const amber = { bar: '#ffb86b', bgStrong: 'rgba(255,184,107,0.18)', bgSoft: 'rgba(255,184,107,0.07)' };
+  return (batchId % 2 === 0) ? teal : amber;
 }
 
 function kindColor(kind) {
