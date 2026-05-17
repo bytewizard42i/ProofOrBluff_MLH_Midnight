@@ -71,6 +71,13 @@ const DIALOGUE = {
     "And they say honesty is the best policy...",
     "If you only knew...",
   ],
+  honestProven: [
+    "See? I told you I was telling the truth.",
+    "Doubted me? That's on you.",
+    "Honesty. Look it up.",
+    "I don't always bluff, you know.",
+    "Maybe next time you'll believe me.",
+  ],
   acceptClaim: [
     "Fine, I'll let that slide.",
     "Okay, I believe you. For now.",
@@ -236,7 +243,7 @@ function getChallengeReaction({ aiWasChallenger, claimWasTrue }) {
       : pickRandom(DIALOGUE.challengeWon);  // AI challenged, claim was false → AI wins
   } else {
     return claimWasTrue
-      ? pickRandom(DIALOGUE.bluffWorked)    // Wait — this means player challenged AI's true claim
+      ? pickRandom(DIALOGUE.honestProven)   // AI was honest, player challenged wrongly
       : pickRandom(DIALOGUE.gotCaught);     // Player caught AI bluffing
   }
 }
