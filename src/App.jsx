@@ -39,6 +39,16 @@ import {
   pickRandom,
   DIALOGUE,
 } from '../demoLand/src/game/ai/scripted.js';
+import {
+  loadStats,
+  recordMatchResult,
+  getTier,
+  tierProgress,
+  pointsToNextTier,
+  getUnlockedAchievements,
+  RANK_TIERS,
+  ACHIEVEMENTS,
+} from './playerStats.js';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -351,6 +361,147 @@ function Tutorial({ onClose }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Rank & Progression UI
+// ─────────────────────────────────────────────────────────────
+
+const TIER_COLORS = {
+  Bronze:   '#cd7f32',
+  Silver:   '#c0c0c0',
+  Gold:     '#ffd700',
+  Platinum: '#e5e4e2',
+  Diamond:  '#b9f2ff',
+  Master:   '#ff6b6b',
+  Legend:   '#ff3df0',
+};
+
+function RankBadge({ stats, size = 'normal' }) {
+  const tier = getTier(stats.rankPoints);
+  const color = TIER_COLORS[tier.name] || '#888';
+  const fontSize = size === 'small' ? '0.75rem' : '0.9rem';
+  return (
+    <span
+      className="rank-badge"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '0.3em',
+        padding: '0.15em 0.5em',
+        borderRadius: '4px',
+        border: `1.5px solid ${color}`,
+        color,
+        fontSize,
+        fontWeight: 700,
+        letterSpacing: '0.05em',
+        textTransform: 'uppercase',
+      }}
+    >
+      {tier.name}
+      <span style={{ fontSize: '0.8em', opacity: 0.8 }}>{stats.rankPoints} RP</span>
+    </span>
+  );
+}
+
+function RankProgressBar({ stats }) {
+  const tier = getTier(stats.rankPoints);
+  const progress = tierProgress(stats.rankPoints);
+  const toNext = pointsToNextTier(stats.rankPoints);
+  const color = TIER_COLORS[tier.name] || '#888';
+  const nextTier = RANK_TIERS[tier.id + 1];
+  return (
+    <div style={{ width: '100%', maxWidth: 280 }}>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        fontSize: '0.7rem',
+        color: 'var(--text-dim, #aaa)',
+        marginBottom: 2,
+      }}>
+        <span>{tier.name}</span>
+        <span>{nextTier ? nextTier.name : 'Max'}</span>
+      </div>
+      <div style={{
+        height: 8,
+        background: 'rgba(255,255,255,0.1)',
+        borderRadius: 4,
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          height: '100%',
+          width: `${progress * 100}%`,
+          background: color,
+          borderRadius: 4,
+          transition: 'width 0.6s ease',
+        }} />
+      </div>
+      {toNext !== null && (
+        <div style={{ fontSize: '0.65rem', color: 'var(--text-dim, #aaa)', marginTop: 2, textAlign: 'center' }}>
+          {toNext} RP to {nextTier.name}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlayerStatsPanel({ stats, onClose }) {
+  const tier = getTier(stats.rankPoints);
+  const unlocked = getUnlockedAchievements(stats);
+  const unlockedIds = new Set(unlocked.map((a) => a.id));
+  return (
+    <div className="tutorial-overlay">
+      <div className="tutorial-card" style={{ maxWidth: 480 }}>
+        <h2>Player Stats</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+          <RankBadge stats={stats} />
+          <RankProgressBar stats={stats} />
+        </div>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '0.4rem 1.5rem',
+          fontSize: '0.85rem',
+          marginBottom: '1rem',
+        }}>
+          <div><strong>Matches Played:</strong> {stats.matchesPlayed}</div>
+          <div><strong>Matches Won:</strong> {stats.matchesWon}</div>
+          <div><strong>Matches Lost:</strong> {stats.matchesLost}</div>
+          <div><strong>Win Rate:</strong> {stats.matchesPlayed > 0 ? Math.round(stats.matchesWon / stats.matchesPlayed * 100) : 0}%</div>
+          <div><strong>Current Streak:</strong> {stats.currentWinStreak}</div>
+          <div><strong>Best Streak:</strong> {stats.longestWinStreak}</div>
+          <div><strong>Peak Rank:</strong> {getTier(stats.peakRankPoints).name} ({stats.peakRankPoints} RP)</div>
+          <div><strong>Bluffs Caught:</strong> {stats.successfulChallenges}</div>
+        </div>
+        <h3 style={{ marginBottom: '0.5rem' }}>Achievements ({unlocked.length}/{ACHIEVEMENTS.length})</h3>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '0.3rem',
+          fontSize: '0.8rem',
+        }}>
+          {ACHIEVEMENTS.map((a) => (
+            <div
+              key={a.id}
+              style={{
+                padding: '0.3em 0.5em',
+                borderRadius: 4,
+                background: unlockedIds.has(a.id) ? 'rgba(255,215,0,0.15)' : 'rgba(255,255,255,0.03)',
+                opacity: unlockedIds.has(a.id) ? 1 : 0.4,
+                border: unlockedIds.has(a.id) ? '1px solid rgba(255,215,0,0.4)' : '1px solid transparent',
+              }}
+            >
+              <div style={{ fontWeight: 600 }}>{unlockedIds.has(a.id) ? '✅' : '🔒'} {a.label}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-dim, #aaa)' }}>{a.desc}</div>
+            </div>
+          ))}
+        </div>
+        <div className="tutorial-actions" style={{ marginTop: '1rem' }}>
+          <button className="primary" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Menu
 // ─────────────────────────────────────────────────────────────
 
@@ -358,7 +509,7 @@ function Tutorial({ onClose }) {
 // on subsequent visits.
 const HANDLE_KEY = 'pob.handle';
 
-function Menu({ onStart, onShowHelp }) {
+function Menu({ onStart, onShowHelp, onShowStats }) {
   const [mode, setMode] = useState('home');
   const [difficulty, setDifficulty] = useState('medium');
   const [handle, setHandle] = useState(() => {
@@ -368,6 +519,7 @@ function Menu({ onStart, onShowHelp }) {
 
   const trimmedHandle = handle.trim();
   const canStart = trimmedHandle.length > 0;
+  const previewStats = canStart ? loadStats(trimmedHandle) : null;
   const submit = () => {
     if (!canStart) return;
     try { window.localStorage.setItem(HANDLE_KEY, trimmedHandle); } catch { /* noop */ }
@@ -399,6 +551,14 @@ function Menu({ onStart, onShowHelp }) {
             autoFocus
             aria-label="Player handle"
           />
+          {previewStats && previewStats.matchesPlayed > 0 && (
+            <div style={{ marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <RankBadge stats={previewStats} size="small" />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-dim, #aaa)' }}>
+                {previewStats.matchesWon}W / {previewStats.matchesLost}L
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="option-group">
@@ -454,6 +614,9 @@ function Menu({ onStart, onShowHelp }) {
           Deal me in
         </button>
         <button onClick={onShowHelp}>How to Play</button>
+        {canStart && (
+          <button onClick={() => onShowStats(trimmedHandle)}>Player Stats</button>
+        )}
       </div>
 
       <p className="subtitle" style={{ fontSize: '0.85rem', maxWidth: 540 }}>
@@ -469,12 +632,14 @@ function Menu({ onStart, onShowHelp }) {
 // Result overlay
 // ─────────────────────────────────────────────────────────────
 
-function ResultOverlay({ winner, onRematch, onMenu }) {
+function ResultOverlay({ winner, onRematch, onMenu, matchResult }) {
   const isPlayerWin = winner === 'player';
   const aiLine = useMemo(
     () => getGameOverDialogue(!isPlayerWin),
     [isPlayerWin]
   );
+  const rpChange = isPlayerWin ? '+25' : '-25';
+  const rpColor = isPlayerWin ? '#4caf50' : '#f44336';
   return (
     <div className="result-overlay">
       <div className={`result-card ${isPlayerWin ? 'win' : 'lose'}`}>
@@ -484,6 +649,34 @@ function ResultOverlay({ winner, onRematch, onMenu }) {
             ? 'Truth, lies, and zero-knowledge — and you read them all.'
             : 'The hand stays hidden. The proof says you lost this round.'}
         </p>
+        {matchResult && (
+          <div style={{ margin: '0.75rem 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <RankBadge stats={matchResult.stats} />
+              <span style={{ fontWeight: 700, color: rpColor, fontSize: '1.1rem' }}>{rpChange} RP</span>
+            </div>
+            <RankProgressBar stats={matchResult.stats} />
+            {matchResult.newAchievements.length > 0 && (
+              <div style={{ marginTop: '0.5rem', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem' }}>New Achievements Unlocked!</div>
+                {matchResult.newAchievements.map((a) => (
+                  <div key={a.id} style={{
+                    display: 'inline-block',
+                    padding: '0.2em 0.6em',
+                    margin: '0.15em',
+                    borderRadius: 4,
+                    background: 'rgba(255,215,0,0.2)',
+                    border: '1px solid rgba(255,215,0,0.5)',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                  }}>
+                    {a.label}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <p className="dialogue">"{aiLine}"</p>
         <div className="result-actions">
           <button className="primary" onClick={onRematch}>
@@ -886,6 +1079,10 @@ export default function App() {
   const [settings, setSettings] = useState({ mode: 'home', difficulty: 'medium' });
   const [state, setState] = useState(null);
   const [aiDialogue, setAiDialogue] = useState('');
+  const [playerStats, setPlayerStats] = useState(null);
+  const [matchResult, setMatchResult] = useState(null);
+  const [showStatsPanel, setShowStatsPanel] = useState(false);
+  const matchRecordedRef = useRef(false);
   // Show the tutorial automatically the first time a visitor lands on the
   // menu. They can Skip; either way we set the flag and won't show it again.
   const [showTutorial, setShowTutorial] = useState(() => {
@@ -1127,6 +1324,20 @@ export default function App() {
     }
   }, []);
 
+  // Record match result when game ends
+  useEffect(() => {
+    if (!state || state.status !== 'gameover' || !settings.handle) return;
+    if (matchRecordedRef.current) return;
+    matchRecordedRef.current = true;
+    const outcome = state.winner === 'player' ? 'win' : 'loss';
+    const result = recordMatchResult(settings.handle, outcome, {
+      successfulChallenges: state.stats.aiBluffsCaught || 0,
+      failedChallenges: state.stats.playerFailedChallenges || 0,
+    });
+    setMatchResult(result);
+    setPlayerStats(result.stats);
+  }, [state, settings.handle]);
+
   const handleStart = useCallback((cfg) => {
     unlockAudio(); // user gesture — primes the AudioContext
     startBackgroundMusic();
@@ -1138,6 +1349,9 @@ export default function App() {
     setVisibleLogCount(0);
     setScreen('game');
     setAiDialogue('');
+    setMatchResult(null);
+    matchRecordedRef.current = false;
+    setPlayerStats(loadStats(cfg.handle));
   }, []);
 
   const handleRematch = useCallback(() => {
@@ -1146,6 +1360,8 @@ export default function App() {
     setVisibleLogCount(0);
     setState(fresh);
     setAiDialogue('');
+    setMatchResult(null);
+    matchRecordedRef.current = false;
   }, [settings.mode]);
 
   const handleMenu = useCallback(() => {
@@ -1241,6 +1457,9 @@ export default function App() {
           <div className="tagline">Bluff publicly. Prove privately.</div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {screen === 'game' && playerStats && (
+            <RankBadge stats={playerStats} size="small" />
+          )}
           <button
             onClick={() => { unlockAudio(); setMuted((m) => !m); }}
             title={muted ? 'Unmute lounge music' : 'Mute lounge music'}
@@ -1268,8 +1487,18 @@ export default function App() {
       </header>
 
       {showTutorial && <Tutorial onClose={dismissTutorial} />}
+      {showStatsPanel && playerStats && (
+        <PlayerStatsPanel stats={playerStats} onClose={() => setShowStatsPanel(false)} />
+      )}
       {screen === 'menu' && (
-        <Menu onStart={handleStart} onShowHelp={() => setShowTutorial(true)} />
+        <Menu
+          onStart={handleStart}
+          onShowHelp={() => setShowTutorial(true)}
+          onShowStats={(handle) => {
+            setPlayerStats(loadStats(handle));
+            setShowStatsPanel(true);
+          }}
+        />
       )}
       {screen === 'game' && state && (
         <>
@@ -1337,6 +1566,7 @@ export default function App() {
               winner={state.winner}
               onRematch={handleRematch}
               onMenu={handleMenu}
+              matchResult={matchResult}
             />
           )}
         </>
