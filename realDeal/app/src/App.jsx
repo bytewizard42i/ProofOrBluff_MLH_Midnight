@@ -40,6 +40,7 @@ import {
   DIALOGUE,
 } from './game/ai/scripted.js';
 import RealDealHeader from './RealDealHeader.jsx';
+import ProofServerLog from './ProofServerLog.jsx';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -1235,6 +1236,9 @@ export default function App() {
   return (
     <div className="app">
       <RealDealHeader />
+      {/* Floating, fixed-position panel in the right margin. Out of
+          flow, so it never reflows the gameboard. */}
+      <ProofServerLog />
       <header className="header">
         <div>
           <h1>

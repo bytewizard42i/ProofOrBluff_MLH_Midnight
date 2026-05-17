@@ -4,8 +4,48 @@ import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { execFile } from 'node:child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Tiny dev-only middleware: GET /api/proof-server-logs?tail=N returns
+// the last N lines of `docker logs midnight-proof-server` as plain
+// text. The realDeal UI polls this so the player can watch ZK proofs
+// being generated live in the side panel while they play. Read-only,
+// only mounted by the dev server, so it cannot leak into production.
+function proofServerLogsPlugin() {
+  return {
+    name: 'pob-proof-server-logs',
+    configureServer(server) {
+      server.middlewares.use('/api/proof-server-logs', (req, res) => {
+        const url = new URL(req.url || '/', 'http://localhost');
+        const tail = Math.min(
+          200,
+          Math.max(1, Number(url.searchParams.get('tail') || 30))
+        );
+        execFile(
+          'docker',
+          ['logs', '--tail', String(tail), 'midnight-proof-server'],
+          { timeout: 4000, maxBuffer: 1024 * 1024 },
+          (err, stdout, stderr) => {
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.setHeader('Cache-Control', 'no-store');
+            if (err) {
+              res.statusCode = 503;
+              res.end(
+                `proof-server unreachable: ${err.message}\n${stderr || ''}`
+              );
+              return;
+            }
+            // proof-server uses tracing -> stderr; combine streams in
+            // chronological order.
+            res.end(`${stderr || ''}${stdout || ''}`);
+          }
+        );
+      });
+    },
+  };
+}
 
 // Proof or Bluff — realDeal Vite app. Port 3016 (demoLand owns 3015).
 // Aliases let the Midnight SDK packages resolve correctly inside the
@@ -17,7 +57,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // these plugins Vite errors with: "ESM integration proposal for Wasm
 // is not supported currently".
 export default defineConfig({
-  plugins: [react(), wasm(), topLevelAwait()],
+  plugins: [react(), wasm(), topLevelAwait(), proofServerLogsPlugin()],
   resolve: {
     // Keep symlinks unresolved so the bindings imported via
     // src/contract/ keep their import paths anchored inside realDeal/app/,
