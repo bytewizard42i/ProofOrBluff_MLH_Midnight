@@ -17,8 +17,6 @@ import {
   findDeployedContract,
   deployContract,
 } from '@midnight-ntwrk/midnight-js-contracts';
-import { levelPrivateStateProvider } from
-  '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { httpClientProofProvider } from
   '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from
@@ -170,19 +168,54 @@ function loadPlayReveal(matchId) {
 }
 
 // ---------------------------------------------------------------------------
+// In-memory PrivateStateProvider implementation. Satisfies the interface
+// from @midnight-ntwrk/midnight-js-types without pulling in the level
+// stack (which fails to bundle for the browser due to its EventEmitter
+// dependency). Private states are scoped by contract address to mirror
+// the on-disk provider's namespace isolation.
+// ---------------------------------------------------------------------------
+
+function createMemoryPrivateStateProvider() {
+  let scopedAddress = null;
+  const states = new Map();        // key: `${address}::${psi}` -> private state
+  const signingKeys = new Map();   // key: address -> signing key
+  const k = (psi) => `${scopedAddress ?? '_'}::${psi}`;
+
+  return {
+    setContractAddress(address) { scopedAddress = address; },
+    async set(psi, state)        { states.set(k(psi), state); },
+    async get(psi)               { return states.has(k(psi)) ? states.get(k(psi)) : null; },
+    async remove(psi)            { states.delete(k(psi)); },
+    async clear()                { states.clear(); },
+    async setSigningKey(addr, key)   { signingKeys.set(addr, key); },
+    async getSigningKey(addr)        { return signingKeys.has(addr) ? signingKeys.get(addr) : null; },
+    async removeSigningKey(addr)     { signingKeys.delete(addr); },
+    async clearSigningKeys()         { signingKeys.clear(); },
+    // Export/import are not required by deployContract / findDeployedContract;
+    // implement as no-ops so the interface is satisfied if midnight-js
+    // ever introspects them.
+    async exportPrivateStates() { return { version: 1, states: [] }; },
+    async importPrivateStates() { return { imported: 0, skipped: 0, overwritten: 0 }; },
+    async exportSigningKeys()   { return { version: 1, keys: [] }; },
+    async importSigningKeys()   { return { imported: 0, skipped: 0, overwritten: 0 }; },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Provider bundle.
 
 function buildProviders({ walletHandle }) {
   const zkConfigProvider = new FetchZkConfigProvider(
     `${window.location.origin}/managed/proof-or-bluff`
   );
-  // Browser-side private state lives in IndexedDB via level-js. We use a
-  // deterministic local-dev password so the encryption layer is satisfied;
-  // this is local-only test data, never production.
-  const privateStateProvider = levelPrivateStateProvider({
-    accountId: walletHandle.coinPublicKey || 'pob-realdeal-anon',
-    privateStoragePasswordProvider: () => 'pob-realdeal-localdev-password-do-not-use-in-prod',
-  });
+  // Tiny in-memory PrivateStateProvider. The real
+  // levelPrivateStateProvider depends on `level` / `abstract-level`,
+  // which extend Node's `events.EventEmitter` — externalised by Vite for
+  // the browser, breaking module init. For our local-dev hackathon demo
+  // we don't need persistence across reloads (the contract address is
+  // stored separately in localStorage by setContractAddress), so a
+  // map-backed implementation is sufficient and ships zero new deps.
+  const privateStateProvider = createMemoryPrivateStateProvider();
   return {
     privateStateProvider,
     publicDataProvider: indexerPublicDataProvider(
