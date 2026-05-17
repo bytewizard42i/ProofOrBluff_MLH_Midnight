@@ -1,112 +1,192 @@
 /**
- * wallet-node.js — headless seed-phrase wallet for the CLI.
+ * wallet-node.js — headless seed-based wallet for the CLI, v8 SDK.
  *
- * Wraps `@midnight-ntwrk/wallet`'s WalletBuilder.buildFromSeed() so the
- * CLI surfaces the same `walletHandle.api` shape the browser code
- * expects. Handles wallet sync, balance checks, and shutdown.
+ * Built around @midnight-ntwrk/wallet-sdk-facade. Mirrors the canonical
+ * pattern from midnightntwrk/example-counter/counter-cli/src/api.ts and
+ * midnight-local-dev-johns-copy/src/wallet.ts.
+ *
+ * Three sub-wallets back the facade — Shielded (Zswap), Unshielded
+ * (NIGHT), Dust — derived from the same HD seed via role-specific paths.
+ * Tx fees are paid in DUST, which is generated FROM unshielded NIGHT
+ * UTXOs but only after a one-time `registerNightUtxosForDustGeneration`
+ * tx. We do that automatically the first time a wallet has unregistered
+ * NIGHT.
  */
 
+import { WebSocket } from 'ws';
 import * as Rx from 'rxjs';
-import { WalletBuilder } from '@midnight-ntwrk/wallet';
-import { nativeToken } from '@midnight-ntwrk/ledger';
-import { NetworkId as ZswapNetworkId } from '@midnight-ntwrk/zswap';
+import * as ledger from '@midnight-ntwrk/ledger-v8';
+import { HDWallet, Roles } from '@midnight-ntwrk/wallet-sdk-hd';
+import { WalletFacade } from '@midnight-ntwrk/wallet-sdk-facade';
+import { ShieldedWallet } from '@midnight-ntwrk/wallet-sdk-shielded';
+import { DustWallet } from '@midnight-ntwrk/wallet-sdk-dust-wallet';
+import {
+  createKeystore,
+  InMemoryTransactionHistoryStorage,
+  PublicKey as UnshieldedPublicKey,
+  UnshieldedWallet,
+} from '@midnight-ntwrk/wallet-sdk-unshielded-wallet';
+import { Buffer } from 'buffer';
 
 import { log } from './log.js';
 
-// Map the canonical midnight-js network string to the Zswap NetworkId
-// enum the wallet builder expects.
-function toZswapNetworkId(networkId) {
-  switch (networkId) {
-    case 'undeployed': return ZswapNetworkId.Undeployed;
-    case 'testnet':    return ZswapNetworkId.TestNet;
-    case 'mainnet':    return ZswapNetworkId.MainNet;
-    default:
-      throw new Error(`Unknown POB_NETWORK_ID: ${networkId}`);
-  }
+// Apollo's GraphQL subscription client uses globalThis.WebSocket. Node
+// doesn't ship one, so polyfill from `ws` before any wallet code runs.
+if (typeof globalThis.WebSocket === 'undefined') {
+  globalThis.WebSocket = WebSocket;
 }
 
 /**
- * Build a wallet from a 64-char hex seed and wait until it has synced
- * its first state. Returns a handle compatible with the
- * `getContractApi({ walletHandle })` factory: `walletHandle.api` is the
- * wallet itself (which midnight-js providers consume directly).
+ * Derive the three role-specific keys from a 32-byte hex seed.
+ * Mirrors the example-counter pattern. Throws if the seed is invalid.
  */
-export async function buildWalletFromSeed({
-  seed,
-  endpoints,
-  networkId,
-  logLevel = 'info',
-}) {
-  if (!seed || !/^[0-9a-fA-F]{64}$/.test(seed)) {
+function deriveKeysFromSeed(hexSeed) {
+  if (!/^[0-9a-fA-F]{64}$/.test(hexSeed)) {
     throw new Error(
       'Seed must be a 64-character hex string (32 bytes). '
       + 'Generate with: node -e "console.log(require(\\\"crypto\\\").randomBytes(32).toString(\\\"hex\\\"))"'
     );
   }
+  const seed = Buffer.from(hexSeed, 'hex');
+  const hd = HDWallet.fromSeed(seed);
+  if (hd.type !== 'seedOk') {
+    throw new Error(`HDWallet.fromSeed failed: ${hd.type}`);
+  }
+  const derivation = hd.hdWallet
+    .selectAccount(0)
+    .selectRoles([Roles.Zswap, Roles.NightExternal, Roles.Dust])
+    .deriveKeysAt(0);
+  if (derivation.type !== 'keysDerived') {
+    throw new Error(`Failed to derive keys: ${derivation.type}`);
+  }
+  hd.hdWallet.clear();
+  return derivation.keys;
+}
 
-  log.step(`Building wallet from seed (${seed.slice(0, 8)}…)`);
-  const wallet = await WalletBuilder.buildFromSeed(
-    endpoints.indexer,
-    endpoints.indexerWs,
-    endpoints.proofServer,
-    endpoints.node,
-    seed,
-    toZswapNetworkId(networkId),
-    logLevel,
-  );
-  wallet.start();
-
-  const initialState = await Rx.firstValueFrom(wallet.state());
-  log.ok(`Wallet ready: ${initialState.address}`);
-  log.info('  Waiting for indexer sync (balance scan)…');
-
-  // The first emission is the cached/initial state and usually shows
-  // 0 balance even when funds exist on chain. Wait for the wallet to
-  // catch up to the chain tip OR for a non-zero balance to appear,
-  // whichever comes first. Bounded by a 90-second timeout.
-  const synced = await Rx.firstValueFrom(
-    wallet.state().pipe(
-      Rx.filter((s) => {
-        const synced = Number(s.syncProgress?.synced ?? 0);
-        const total = Number(s.syncProgress?.total ?? 0);
-        const balance = s.balances?.[nativeToken()] ?? 0n;
-        return (total > 0 && synced >= total) || balance > 0n;
-      }),
-      Rx.take(1),
-      Rx.timeout({ each: 90_000 }),
-    )
-  ).catch((err) => {
-    log.warn(`Sync wait timed out (${err.message}). Using last known state.`);
-    return initialState;
-  });
-
-  const balance = synced.balances?.[nativeToken()] ?? 0n;
-  log.info(`  Native token balance: ${balance.toString()}`);
-
-  // The browser's walletHandle has `.api` that holds the providers
-  // and submit machinery. With the headless wallet the wallet itself
-  // is the api — so mirror that shape so contract.js doesn't care.
+function buildFacadeConfig(networkId, endpoints) {
   return {
-    api: wallet,
-    address: initialState.address,
-    coinPublicKey: initialState.coinPublicKey,
-    balance,
-    state$: wallet.state(),
-    async waitForFunds(min = 1n) {
-      const have = (await Rx.firstValueFrom(wallet.state()))
-        .balances[nativeToken()] ?? 0n;
-      if (have >= min) return have;
-      log.info(`Waiting for native token balance ≥ ${min.toString()}…`);
-      return Rx.firstValueFrom(
-        wallet.state().pipe(
-          Rx.map((s) => s.balances[nativeToken()] ?? 0n),
-          Rx.filter((b) => b >= min),
-          Rx.take(1),
-        )
-      );
+    networkId,
+    indexerClientConnection: {
+      indexerHttpUrl: endpoints.indexer,
+      indexerWsUrl: endpoints.indexerWs,
     },
+    provingServerUrl: new URL(endpoints.proofServer),
+    relayURL: new URL(endpoints.node.replace(/^http/, 'ws')),
+    costParameters: {
+      additionalFeeOverhead: 300_000_000_000_000n,
+      feeBlocksMargin: 5,
+    },
+    txHistoryStorage: new InMemoryTransactionHistoryStorage(),
+  };
+}
+
+/**
+ * Build the WalletContext (facade + secret keys + unshielded keystore)
+ * and wait for it to sync. Returns a `walletHandle` whose `.api` shape
+ * mirrors what the contract.js layer expects.
+ */
+export async function buildWalletFromSeed({
+  seed,
+  endpoints,
+  networkId,
+}) {
+  log.step(`Building wallet from seed (${seed.slice(0, 8)}…) on ${networkId}`);
+  const keys = deriveKeysFromSeed(seed);
+  const shieldedSecretKeys = ledger.ZswapSecretKeys.fromSeed(keys[Roles.Zswap]);
+  const dustSecretKey = ledger.DustSecretKey.fromSeed(keys[Roles.Dust]);
+  const unshieldedKeystore = createKeystore(keys[Roles.NightExternal], networkId);
+
+  const configuration = buildFacadeConfig(networkId, endpoints);
+
+  const facade = await WalletFacade.init({
+    configuration,
+    shielded: (cfg) => ShieldedWallet(cfg).startWithSecretKeys(shieldedSecretKeys),
+    unshielded: (cfg) =>
+      UnshieldedWallet(cfg).startWithPublicKey(
+        UnshieldedPublicKey.fromKeyStore(unshieldedKeystore),
+      ),
+    dust: (cfg) =>
+      DustWallet(cfg).startWithSecretKey(
+        dustSecretKey,
+        ledger.LedgerParameters.initialParameters().dust,
+      ),
+  });
+  await facade.start(shieldedSecretKeys, dustSecretKey);
+
+  const ctx = { wallet: facade, shieldedSecretKeys, dustSecretKey, unshieldedKeystore };
+
+  log.info(`  Unshielded address: ${unshieldedKeystore.getBech32Address().asString()}`);
+  log.info('  Waiting for wallet sync…');
+  const synced = await Rx.firstValueFrom(
+    facade.state().pipe(
+      Rx.throttleTime(3_000),
+      Rx.tap((s) => {
+        if (!s.isSynced) log.info('    syncing…');
+      }),
+      Rx.filter((s) => s.isSynced),
+      Rx.take(1),
+      Rx.timeout({ each: 120_000 }),
+    )
+  );
+
+  const unshieldedNight =
+    synced.unshielded?.balances?.[ledger.nativeToken().raw] ?? 0n;
+  const shieldedNight =
+    synced.shielded?.balances?.[ledger.nativeToken().raw] ?? 0n;
+  const dustBalance = synced.dust?.balance(new Date()) ?? 0n;
+  log.ok(`  Synced. NIGHT (unshielded): ${unshieldedNight}, NIGHT (shielded): ${shieldedNight}, DUST: ${dustBalance}`);
+
+  // DUST registration — required so the wallet has fees to pay for txs.
+  // Skip if there's already DUST or no NIGHT to register.
+  if (dustBalance === 0n && unshieldedNight > 0n) {
+    log.step('Registering NIGHT UTXOs for DUST generation…');
+    await registerNightForDust(ctx);
+  }
+
+  return {
+    api: facade,
+    ctx,
+    address: unshieldedKeystore.getBech32Address().asString(),
+    coinPublicKey: synced.shielded?.coinPublicKey?.toHexString?.() ?? null,
     async shutdown() {
-      try { await wallet.close?.(); } catch { /* noop */ }
+      try { await facade.stop(); } catch { /* noop */ }
     },
   };
+}
+
+/**
+ * Register all unregistered NIGHT UTXOs for dust generation. This is a
+ * separate on-chain tx that costs no fees (it's the bootstrap path) and
+ * unblocks the wallet's ability to pay future tx fees in DUST.
+ */
+async function registerNightForDust(ctx) {
+  const state = await Rx.firstValueFrom(
+    ctx.wallet.state().pipe(Rx.filter((s) => s.isSynced))
+  );
+  const unregistered = (state.unshielded?.availableCoins ?? []).filter(
+    (c) => c.meta.registeredForDustGeneration === false,
+  );
+  if (unregistered.length === 0) {
+    log.warn('  No unregistered NIGHT UTXOs found.');
+    return false;
+  }
+  log.info(`  Found ${unregistered.length} unregistered NIGHT UTXO(s)`);
+  const recipe = await ctx.wallet.registerNightUtxosForDustGeneration(
+    unregistered,
+    ctx.unshieldedKeystore.getPublicKey(),
+    (payload) => ctx.unshieldedKeystore.signData(payload),
+  );
+  const finalized = await ctx.wallet.finalizeRecipe(recipe);
+  const txId = await ctx.wallet.submitTransaction(finalized);
+  log.info(`  DUST-registration tx: ${txId}`);
+  await Rx.firstValueFrom(
+    ctx.wallet.state().pipe(
+      Rx.throttleTime(3_000),
+      Rx.filter((s) => (s.dust?.balance(new Date()) ?? 0n) > 0n),
+      Rx.take(1),
+      Rx.timeout({ each: 120_000 }),
+    )
+  );
+  log.ok('  DUST registered and accruing.');
+  return true;
 }

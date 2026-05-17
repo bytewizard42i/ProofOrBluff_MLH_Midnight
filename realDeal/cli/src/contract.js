@@ -1,24 +1,26 @@
 /**
- * cli/src/contract.js — Node-side mirror of realDeal/app/src/midnight/contract.js.
+ * cli/src/contract.js — v8 SDK Node mirror of the browser contract.js.
  *
- * IMPORTANT: keep this file in sync with the browser version. They both
- * wrap the same compiled bindings; the only differences are:
- *   - we build the providers bundle from Node-flavoured packages
- *     (level private-state, node zk config, no DApp Connector)
- *   - persistence routes through ../state.js (filesystem) instead of
- *     window.localStorage
+ * Wires up the realDeal Compact contract bindings with the v8 wallet
+ * stack: WalletFacade -> custom WalletProvider/MidnightProvider ->
+ * midnight-js providers -> deployContract / findDeployedContract.
  *
- * TODO: extract a shared "core API factory" into
- * realDeal/app/src/midnight/contract-core.js so the two surfaces import
- * the same symbol. Holding off until the wiring is proven end-to-end on
- * both surfaces; clone-then-dedupe is lower risk than refactor-then-test.
+ * Provider construction follows the canonical pattern in
+ * midnightntwrk/example-counter/counter-cli/src/api.ts, including the
+ * `signTransactionIntents` workaround for a wallet SDK bug where
+ * `signRecipe` hardcodes 'pre-proof' but proven intents need 'proof'.
  */
 
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { Buffer } from 'buffer';
+import * as Rx from 'rxjs';
 
-import { findDeployedContract, deployContract } from
-  '@midnight-ntwrk/midnight-js-contracts';
+import * as ledger from '@midnight-ntwrk/ledger-v8';
+import {
+  deployContract,
+  findDeployedContract,
+} from '@midnight-ntwrk/midnight-js-contracts';
 import { httpClientProofProvider } from
   '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from
@@ -27,23 +29,23 @@ import { NodeZkConfigProvider } from
   '@midnight-ntwrk/midnight-js-node-zk-config-provider';
 import { levelPrivateStateProvider } from
   '@midnight-ntwrk/midnight-js-level-private-state-provider';
-import { setNetworkId } from
-  '@midnight-ntwrk/midnight-js-network-id';
-import { nativeToken } from '@midnight-ntwrk/ledger';
+import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
+import { CompiledContract } from '@midnight-ntwrk/compact-js';
 
 import * as state from './state.js';
 
-// The compiled contract bindings live next to the .compact source.
-// We dynamically import so the path is resolved relative to wherever
-// the CLI is launched from.
+// ---------------------------------------------------------------------------
+// Bindings loader
+
 async function loadContractModule(managedDir) {
   const indexJs = path.resolve(managedDir, 'contract', 'index.js');
   const url = pathToFileURL(indexJs).href;
   return import(url);
 }
 
-// In midnight-js-network-id v4.0.4 NetworkId is just a string alias.
-// The valid values are 'undeployed', 'testnet', 'mainnet'.
+// ---------------------------------------------------------------------------
+// Helpers
+
 function setNetwork(networkId) {
   setNetworkId(networkId);
 }
@@ -116,6 +118,89 @@ function rehydrateReveal(j) {
 }
 
 // ---------------------------------------------------------------------------
+// signTransactionIntents — wallet SDK workaround
+//
+// signRecipe in @midnight-ntwrk/wallet-sdk-facade hardcodes 'pre-proof'
+// when cloning intents, which fails on already-proven UnboundTransaction
+// intents that carry 'proof' data. We sign manually with the correct
+// proof markers (per the example-counter v2.1.1 workaround).
+
+function signTransactionIntents(tx, signFn, proofMarker) {
+  if (!tx.intents || tx.intents.size === 0) return;
+  for (const segment of tx.intents.keys()) {
+    const intent = tx.intents.get(segment);
+    if (!intent) continue;
+
+    const cloned = ledger.Intent.deserialize(
+      'signature',
+      proofMarker,
+      'pre-binding',
+      intent.serialize(),
+    );
+
+    const sigData = cloned.signatureData(segment);
+    const signature = signFn(sigData);
+
+    if (cloned.fallibleUnshieldedOffer) {
+      const sigs = cloned.fallibleUnshieldedOffer.inputs.map(
+        (_input, i) =>
+          cloned.fallibleUnshieldedOffer.signatures.at(i) ?? signature,
+      );
+      cloned.fallibleUnshieldedOffer =
+        cloned.fallibleUnshieldedOffer.addSignatures(sigs);
+    }
+
+    if (cloned.guaranteedUnshieldedOffer) {
+      const sigs = cloned.guaranteedUnshieldedOffer.inputs.map(
+        (_input, i) =>
+          cloned.guaranteedUnshieldedOffer.signatures.at(i) ?? signature,
+      );
+      cloned.guaranteedUnshieldedOffer =
+        cloned.guaranteedUnshieldedOffer.addSignatures(sigs);
+    }
+
+    tx.intents.set(segment, cloned);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WalletProvider + MidnightProvider bridge
+
+async function createWalletAndMidnightProvider(walletCtx) {
+  const synced = await Rx.firstValueFrom(
+    walletCtx.wallet.state().pipe(Rx.filter((s) => s.isSynced))
+  );
+  return {
+    getCoinPublicKey() {
+      return synced.shielded.coinPublicKey.toHexString();
+    },
+    getEncryptionPublicKey() {
+      return synced.shielded.encryptionPublicKey.toHexString();
+    },
+    async balanceTx(tx, ttl) {
+      const recipe = await walletCtx.wallet.balanceUnboundTransaction(
+        tx,
+        {
+          shieldedSecretKeys: walletCtx.shieldedSecretKeys,
+          dustSecretKey: walletCtx.dustSecretKey,
+        },
+        { ttl: ttl ?? new Date(Date.now() + 30 * 60 * 1000) },
+      );
+      const signFn = (payload) =>
+        walletCtx.unshieldedKeystore.signData(payload);
+      signTransactionIntents(recipe.baseTransaction, signFn, 'proof');
+      if (recipe.balancingTransaction) {
+        signTransactionIntents(recipe.balancingTransaction, signFn, 'pre-proof');
+      }
+      return walletCtx.wallet.finalizeRecipe(recipe);
+    },
+    submitTx(tx) {
+      return walletCtx.wallet.submitTransaction(tx);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Public factory
 
 export async function getContractApi({
@@ -125,12 +210,18 @@ export async function getContractApi({
   managedDir,
 }) {
   setNetwork(networkId);
+
+  const walletCtx = walletHandle.ctx;
+  if (!walletCtx) {
+    throw new Error(
+      'walletHandle.ctx missing — caller must build via buildWalletFromSeed.'
+    );
+  }
+
   const { Contract, pureCircuits } = await loadContractModule(managedDir);
 
-  // Witness staging (used by resolveChallenge). One per process is OK
-  // because the CLI runs commands one at a time.
+  // Witness staging for resolveChallenge
   let pendingReveal = null;
-
   const witnesses = {
     revealLastPlay(context) {
       if (!pendingReveal) {
@@ -142,33 +233,54 @@ export async function getContractApi({
     },
   };
 
+  // The v8 midnight-js requires a CompiledContract wrapper around the
+  // raw Contract class — see example-counter v2.1.1 for the canonical
+  // pattern. We attach our witnesses and point at the managed/ dir for
+  // ZK assets (zkir + prover/verifier keys).
+  const compiledContract = CompiledContract.make('proof-or-bluff', Contract).pipe(
+    CompiledContract.withWitnesses(witnesses),
+    CompiledContract.withCompiledFileAssets(managedDir),
+  );
+
+  // Build providers
+  const walletAndMidnightProvider = await createWalletAndMidnightProvider(walletCtx);
+  const accountId = walletAndMidnightProvider.getCoinPublicKey();
+  // Storage password is derived from the coin public key — base64 ensures
+  // mixed character classes for the level provider's strength check.
+  const storagePassword = `${Buffer.from(accountId, 'hex').toString('base64')}!pob`;
+
+  const zkConfigProvider = new NodeZkConfigProvider(managedDir);
+
   const providers = {
-    privateStateProvider: await levelPrivateStateProvider({
+    privateStateProvider: levelPrivateStateProvider({
       privateStateStoreName: 'pob-realdeal',
       privateStateStorePath: state.privateStateDir(networkId),
+      accountId,
+      privateStoragePasswordProvider: () => storagePassword,
     }),
     publicDataProvider: indexerPublicDataProvider(
       endpoints.indexer,
       endpoints.indexerWs,
     ),
-    zkConfigProvider: new NodeZkConfigProvider(managedDir),
-    proofProvider: httpClientProofProvider(endpoints.proofServer),
-    walletProvider: walletHandle.api,
-    midnightProvider: walletHandle.api,
+    zkConfigProvider,
+    proofProvider: httpClientProofProvider(endpoints.proofServer, zkConfigProvider),
+    walletProvider: walletAndMidnightProvider,
+    midnightProvider: walletAndMidnightProvider,
   };
 
-  const contract = new Contract(witnesses);
   const persisted = state.getContractAddress(networkId);
 
   let deployed;
   if (persisted) {
     deployed = await findDeployedContract(providers, {
       contractAddress: persisted,
-      contract,
+      compiledContract,
+      privateStateId: 'pob:realdeal:private',
+      initialPrivateState: {},
     });
   } else {
     deployed = await deployContract(providers, {
-      contract,
+      compiledContract,
       privateStateId: 'pob:realdeal:private',
       initialPrivateState: {},
     });
@@ -184,10 +296,21 @@ export async function getContractApi({
     if (!fn) throw new Error(`Circuit "${name}" not callable.`);
     return fn;
   };
+  // Result-shape extraction helpers — v8 SDK changed several field
+  // names (txHash → txId, etc.). These tolerate both shapes so we
+  // don't crash if the SDK pin shifts again under us.
+  const extractTxId = (r) =>
+    r?.public?.txId ?? r?.public?.txHash ?? r?.public?.transactionId ?? null;
+  const extractResult = (r) =>
+    r?.public?.result ?? r?.public?.callResult?.result ?? r?.private?.result ?? r?.result ?? null;
   const nowSec = () => BigInt(Math.floor(Date.now() / 1000));
+  // The contract's ShieldedCoinInfo.color is a Bytes<32>. ledger-v8's
+  // nativeToken().raw returns the hex *string* used as a balance-map
+  // key; we convert to bytes for the on-chain payload.
+  const nativeColorBytes = hexToBytes(ledger.nativeToken().raw);
   const nativeCoin = (value) => ({
     nonce: randomBytes32(),
-    color: nativeToken(),
+    color: nativeColorBytes,
     value: BigInt(value),
   });
 
@@ -203,9 +326,30 @@ export async function getContractApi({
         BigInt(mode), BigInt(wagerAmount), commit, nowSec(),
         nativeCoin(wagerAmount),
       );
-      const matchId = bytesToHex(result.public.result);
-      state.persistEntropy(matchId, 'p1', entropyHex);
-      return { matchId, entropy: entropyHex, txHash: result.public.txHash };
+      if (process.env.POB_DEBUG_RESULT) {
+        // eslint-disable-next-line no-console
+        console.log('[debug] createMatch result keys:', Object.keys(result || {}));
+        // eslint-disable-next-line no-console
+        console.log('[debug] result.public keys:', Object.keys(result?.public || {}));
+        // eslint-disable-next-line no-console
+        console.log('[debug] result:', JSON.stringify(result, (_k, v) =>
+          typeof v === 'bigint' ? v.toString() + 'n'
+          : v instanceof Uint8Array ? '0x' + Array.from(v).map(b => b.toString(16).padStart(2, '0')).join('')
+          : v, 2).slice(0, 4000));
+      }
+      const matchIdBytes =
+        result?.public?.result
+          ?? result?.public?.callResult?.result
+          ?? result?.private?.result
+          ?? result?.result;
+      const txId =
+        result?.public?.txId
+          ?? result?.public?.txHash
+          ?? result?.public?.transactionId
+          ?? null;
+      const matchId = matchIdBytes ? bytesToHex(matchIdBytes) : null;
+      if (matchId) state.persistEntropy(matchId, 'p1', entropyHex);
+      return { matchId, entropy: entropyHex, txId };
     },
 
     async joinMatch({ matchId, wagerAmount }) {
@@ -216,7 +360,7 @@ export async function getContractApi({
         hexToBytes(matchId), commit, nativeCoin(wagerAmount),
       );
       state.persistEntropy(matchId, 'p2', entropyHex);
-      return { entropy: entropyHex, txHash: result.public.txHash };
+      return { entropy: entropyHex, txId: extractTxId(result) };
     },
 
     importEntropy(matchId, role, entropyHex) {
@@ -238,7 +382,7 @@ export async function getContractApi({
         hexToBytes(matchId), hexToBytes(p1), hexToBytes(p2),
         BigInt(startingRank), nowSec(),
       );
-      return { txHash: result.public.txHash };
+      return { txId: extractTxId(result) };
     },
 
     async playCards({ matchId, cards, claimedRank, claimedCount }) {
@@ -252,17 +396,17 @@ export async function getContractApi({
         BigInt(claimedRank), BigInt(claimedCount), nowSec(),
       );
       state.persistPlayReveal(matchId, dumpReveal(reveal));
-      return { playCommit: bytesToHex(playCommit), txHash: result.public.txHash };
+      return { playCommit: bytesToHex(playCommit), txId: extractTxId(result) };
     },
 
     async acceptClaim({ matchId }) {
       const r = await ensure('acceptClaim')(hexToBytes(matchId), nowSec());
-      return { txHash: r.public.txHash };
+      return { txId: extractTxId(r) };
     },
 
     async challengeClaim({ matchId }) {
       const r = await ensure('challengeClaim')(hexToBytes(matchId), nowSec());
-      return { txHash: r.public.txHash };
+      return { txId: extractTxId(r) };
     },
 
     async resolveChallenge({ matchId }) {
@@ -271,8 +415,7 @@ export async function getContractApi({
         throw new Error(
           `No stored play reveal for match ${matchId}. The challenged `
           + `player must call resolveChallenge from the same surface that `
-          + `submitted playCards. (Surface = browser localStorage OR this `
-          + `CLI's .pob-state/, not both.)`
+          + `submitted playCards.`
         );
       }
       pendingReveal = rehydrateReveal(dump);
@@ -281,8 +424,8 @@ export async function getContractApi({
           hexToBytes(matchId), nowSec(),
         );
         return {
-          honest: Boolean(r.public.result),
-          txHash: r.public.txHash,
+          honest: Boolean(extractResult(r)),
+          txId: extractTxId(r),
         };
       } finally {
         pendingReveal = null;
@@ -291,41 +434,43 @@ export async function getContractApi({
 
     async claimPayout({ matchId }) {
       const r = await ensure('claimPayout')(hexToBytes(matchId));
-      return { txHash: r.public.txHash };
+      return { txId: extractTxId(r) };
     },
 
     async cancelUnjoinedMatch({ matchId }) {
       const r = await ensure('cancelUnjoinedMatch')(hexToBytes(matchId));
-      return { txHash: r.public.txHash };
+      return { txId: extractTxId(r) };
     },
 
     async forfeitAbandonedMatch({ matchId, timeoutSeconds = 86_400n }) {
       const r = await ensure('forfeitAbandonedMatch')(
         hexToBytes(matchId), nowSec(), BigInt(timeoutSeconds),
       );
-      return { txHash: r.public.txHash };
+      return { txId: extractTxId(r) };
     },
 
     async forfeitStalledChallenge({ matchId, timeoutSeconds = 3600n }) {
       const r = await ensure('forfeitStalledChallenge')(
         hexToBytes(matchId), nowSec(), BigInt(timeoutSeconds),
       );
-      return { txHash: r.public.txHash };
+      return { txId: extractTxId(r) };
     },
 
     async getMatch(matchId) {
       const r = await ensure('getMatch')(hexToBytes(matchId));
-      return r.public.result;
+      return extractResult(r);
     },
 
     async getMatchPhase(matchId) {
       const r = await ensure('getMatchPhase')(hexToBytes(matchId));
-      return Number(r.public.result);
+      const v = extractResult(r);
+      return v == null ? null : Number(v);
     },
 
     async getWinner(matchId) {
       const r = await ensure('getWinner')(hexToBytes(matchId));
-      return Number(r.public.result);
+      const v = extractResult(r);
+      return v == null ? null : Number(v);
     },
   };
 }
