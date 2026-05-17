@@ -14,3 +14,8 @@ realDeal/app/.env
 .idea/
 .vscode/
 *:Zone.Identifier
+
+# Large original screen-recordings — keep only the compressed version
+/media/prooforbluff mini vid.mp4
+# Windows alternate-data-stream metadata that leaks into WSL via /mnt/c
+*:Zone.Identifier
