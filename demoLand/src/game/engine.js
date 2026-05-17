@@ -146,6 +146,7 @@ function playCards(state, { cardsPlayed, claimedRank, claimedCount, player }) {
   const updatedHand = hand.filter(c => !playedIds.has(c.id));
 
   const newState = { ...state };
+  newState.log = [...state.log];
   if (player === 'player') {
     newState.playerHand = updatedHand;
   } else {
@@ -184,6 +185,7 @@ function acceptClaim(state) {
   }
 
   const newState = { ...state };
+  newState.log = [...state.log];
   newState.pile = [...state.pile, ...state.lastPlay.cards];
   newState.currentRank = getNextRank(state.currentRank);
   newState.lastPlay = null;
@@ -191,6 +193,18 @@ function acceptClaim(state) {
 
   const who = state.turn === 'player' ? 'You' : 'AI';
   newState.log.push(`${who} accepted the claim. Pile now has ${newState.pile.length} card(s). Next rank: ${rankName(newState.currentRank)}.`);
+
+  // Check win conditions — the player who PLAYED (not the one accepting)
+  // may have emptied their hand with this accepted play.
+  if (checkWinCondition(newState.playerHand)) {
+    newState.status = 'gameover';
+    newState.winner = 'player';
+    newState.log.push('YOU WIN! Your hand is empty.');
+  } else if (checkWinCondition(newState.aiHand)) {
+    newState.status = 'gameover';
+    newState.winner = 'ai';
+    newState.log.push('AI WINS! The AI emptied its hand.');
+  }
 
   return { state: newState };
 }
@@ -269,6 +283,7 @@ function challenge(state) {
   });
 
   const newState = { ...state };
+  newState.log = [...state.log];
   const fullPile = [...state.pile, ...state.lastPlay.cards];
   // Was there a real pile to pick up, or was this challenge fired
   // before any prior accepts had stacked cards? When the pile started
