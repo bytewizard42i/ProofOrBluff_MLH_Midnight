@@ -205,9 +205,52 @@ function createMemoryPrivateStateProvider() {
 // Provider bundle.
 
 function buildProviders({ walletHandle }) {
-  const zkConfigProvider = new FetchZkConfigProvider(
-    `${window.location.origin}/managed/proof-or-bluff`
-  );
+  const baseURL = `${window.location.origin}/managed/proof-or-bluff`;
+  const innerProvider = new FetchZkConfigProvider(baseURL);
+  // Wrap to surface the underlying fetch/parse error. The default
+  // FetchZkConfigProvider rejects with response.statusText (often empty)
+  // and the surrounding Effect.tryPromise.catch wraps it as a
+  // ZKConfigurationReadError without the cause attached, hiding what
+  // actually went wrong (CORS, MIME, parse, etc.).
+  const wrap = (label, fn) => async (circuitId) => {
+    const url = `${baseURL}/${label === 'zkir' ? 'zkir' : 'keys'}/${circuitId}.${label}`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        // eslint-disable-next-line no-console
+        console.error(`[ZK fetch FAIL] ${url} -> HTTP ${res.status} ${res.statusText}`);
+        throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+      }
+      const buf = new Uint8Array(await res.arrayBuffer());
+      // eslint-disable-next-line no-console
+      console.log(`[ZK fetch OK]   ${url} -> ${buf.byteLength} bytes`);
+      return buf;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`[ZK fetch THREW] ${url}`, err);
+      throw err;
+    }
+  };
+  const getVerifierKey = wrap('verifier');
+  const getProverKey   = wrap('prover');
+  const getZKIR        = wrap('zkir');
+  const zkConfigProvider = {
+    getVerifierKey,
+    getProverKey,
+    getZKIR,
+    // httpClientProofProvider calls .get(keyLocation) to bundle all three
+    // pieces into a single { proverKey, verifierKey, zkir } object. The
+    // base ZKConfigProvider class provides this; we re-implement it here
+    // because our wrapped object isn't extending that class.
+    async get(circuitId) {
+      const [proverKey, verifierKey, zkir] = await Promise.all([
+        getProverKey(circuitId),
+        getVerifierKey(circuitId),
+        getZKIR(circuitId),
+      ]);
+      return { proverKey, verifierKey, zkir };
+    },
+  };
   // Tiny in-memory PrivateStateProvider. The real
   // levelPrivateStateProvider depends on `level` / `abstract-level`,
   // which extend Node's `events.EventEmitter` — externalised by Vite for
