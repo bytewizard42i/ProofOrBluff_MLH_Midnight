@@ -630,6 +630,15 @@ button.active {
    menu wondering what to click. The animation stops as soon as
    focus lands (focus has its own stronger glow above) or once any
    character is entered (the React side strips the class). */
+/* Brief brightness flash for the "● live" indicator in the
+   proof-server panel — re-triggered on every successful poll so
+   the user can see the panel is alive even when no new log lines
+   arrive between rounds. */
+@keyframes pob-live-flash {
+  0%   { filter: brightness(1.8) drop-shadow(0 0 6px currentColor); }
+  100% { filter: brightness(1) drop-shadow(0 0 0px currentColor); }
+}
+
 @keyframes handle-attention-pulse {
   0%, 100% {
     border-color: var(--border);

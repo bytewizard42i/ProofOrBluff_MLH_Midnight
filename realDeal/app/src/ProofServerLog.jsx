@@ -99,6 +99,13 @@ export default function ProofServerLog() {
   const [lines, setLines] = useState([]);
   const [error, setError] = useState(null);
   const [paused, setPaused] = useState(false);
+  // Bumped on every successful poll so the user can see the panel is
+  // alive even when no new log entries arrived (proof-server only
+  // emits lines when a circuit fires; between rounds it's silent).
+  const [lastTick, setLastTick] = useState(null);
+  // Briefly turns true after each poll to flash the "● live" dot;
+  // a tiny pulse reads as "I just checked" without being annoying.
+  const [flashTick, setFlashTick] = useState(0);
   const intervalRef = useRef(null);
   // Live drag/resize state held in refs so mousemove handlers don't
   // trigger React re-renders on every pixel.
@@ -128,7 +135,14 @@ export default function ProofServerLog() {
         if (cancelled) return;
         if (!r.ok) { setError(text || `HTTP ${r.status}`); return; }
         setError(null);
-        setLines(text.split('\n').map(classifyLine).filter(Boolean));
+        // Reverse so the *newest* line is at the top of the panel.
+        // docker logs prints oldest-first; for a live feed humans
+        // expect a stack-like ordering where new info pushes down.
+        const parsed = text.split('\n').map(classifyLine).filter(Boolean);
+        parsed.reverse();
+        setLines(parsed);
+        setLastTick(new Date());
+        setFlashTick((n) => n + 1);
       } catch (err) {
         if (!cancelled) setError(err.message || String(err));
       }
@@ -320,10 +334,14 @@ export default function ProofServerLog() {
           🔐 PROOF SERVER
         </span>
         <span
+          // The 'flashTick' key forces a remount on every successful
+          // poll, which re-triggers the brief brightness animation.
+          key={flashTick}
           style={{
             color: paused ? '#ffb86b' : '#74e8a3',
             fontSize: '0.7rem',
             fontWeight: 600,
+            animation: paused ? 'none' : 'pob-live-flash 0.6s ease-out',
           }}
         >
           {paused ? '⏸ paused' : '● live'}
@@ -422,8 +440,14 @@ export default function ProofServerLog() {
           justifyContent: 'space-between',
         }}
       >
-        <span>{lines.length} line{lines.length === 1 ? '' : 's'} (tail {TAIL_DEFAULT})</span>
-        <span>polls every {POLL_INTERVAL / 1000}s</span>
+        <span>
+          {lines.length} line{lines.length === 1 ? '' : 's'} • newest first
+        </span>
+        <span>
+          {lastTick
+            ? `last poll ${lastTick.toLocaleTimeString([], { hour12: false })}`
+            : `polls every ${POLL_INTERVAL / 1000}s`}
+        </span>
       </footer>
 
       {/* Resize affordances: four handles total. Pointer Capture is
