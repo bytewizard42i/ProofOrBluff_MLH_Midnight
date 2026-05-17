@@ -1,5 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import wasm from 'vite-plugin-wasm';
+import topLevelAwait from 'vite-plugin-top-level-await';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -8,8 +10,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Proof or Bluff — realDeal Vite app. Port 3016 (demoLand owns 3015).
 // Aliases let the Midnight SDK packages resolve correctly inside the
 // browser bundle even when their internal deps reach for Node built-ins.
+//
+// vite-plugin-wasm + vite-plugin-top-level-await are required because
+// @midnight-ntwrk/ledger-v8 (and a handful of other v8 SDK packages)
+// ship as WASM modules with top-level-await initialization. Without
+// these plugins Vite errors with: "ESM integration proposal for Wasm
+// is not supported currently".
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), wasm(), topLevelAwait()],
   resolve: {
     // Keep symlinks unresolved so the bindings imported via
     // src/contract/ keep their import paths anchored inside realDeal/app/,
@@ -38,6 +46,23 @@ export default defineConfig({
     global: 'globalThis',
   },
   optimizeDeps: {
+    // Only the WASM-backed ledger packages need to skip esbuild
+    // pre-bundling (esbuild strips top-level-await, which breaks WASM
+    // init). Everything else MUST be pre-bundled so CJS->ESM interop
+    // works for transitive deps like `object-inspect` that several
+    // midnight-js packages reach for.
+    exclude: [
+      '@midnight-ntwrk/ledger-v8',
+      '@midnight-ntwrk/zswap',
+      '@midnight-ntwrk/onchain-runtime',
+    ],
+    // Force-include CJS deps that midnight-js uses transitively, so
+    // Vite synthesizes proper default exports for them.
+    include: [
+      'object-inspect',
+      'side-channel',
+      'qs',
+    ],
     esbuildOptions: {
       target: 'es2022',
     },

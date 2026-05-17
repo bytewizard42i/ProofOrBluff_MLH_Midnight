@@ -21,7 +21,7 @@ import { httpClientProofProvider } from
   '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from
   '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
-import { fetchZkConfigProvider } from
+import { FetchZkConfigProvider } from
   '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
 import { setNetworkId } from
   '@midnight-ntwrk/midnight-js-network-id';
@@ -171,16 +171,17 @@ function loadPlayReveal(matchId) {
 // Provider bundle.
 
 function buildProviders({ walletHandle }) {
+  const zkConfigProvider = new FetchZkConfigProvider(
+    `${window.location.origin}/managed/proof-or-bluff`
+  );
   return {
     privateStateProvider: walletHandle.api.privateStateProvider,
     publicDataProvider: indexerPublicDataProvider(
       ENDPOINTS.indexer,
       ENDPOINTS.indexerWs
     ),
-    zkConfigProvider: fetchZkConfigProvider(
-      `${window.location.origin}/managed/proof-or-bluff`
-    ),
-    proofProvider: httpClientProofProvider(ENDPOINTS.proofServer),
+    zkConfigProvider,
+    proofProvider: httpClientProofProvider(ENDPOINTS.proofServer, zkConfigProvider),
     walletProvider: walletHandle.api,
     midnightProvider: walletHandle.api,
   };
