@@ -326,7 +326,13 @@ function challenge(state) {
     ? Math.max(basePenalty, MIN_BLUFF_PENALTY)
     : basePenalty;
 
-  const reshuffledDeck = shuffleDeck(state.deck);
+  // Recycle the discard pile back into the live deck if the draw would
+  // underflow, then reshuffle. The active pile (fullPile) is being
+  // discarded *this* turn — include it in the recycle pool so it's
+  // available to be drawn back if necessary.
+  const carryDiscards = [...(state.discardPile || []), ...fullPile];
+  const replenished = replenishDeck(state.deck, carryDiscards, penaltyTarget);
+  const reshuffledDeck = shuffleDeck(replenished.deck);
   const drawCount = Math.min(penaltyTarget, reshuffledDeck.length);
   const drawnCards = reshuffledDeck.slice(0, drawCount);
   const deckAfterDraw = reshuffledDeck.slice(drawCount);
@@ -338,10 +344,12 @@ function challenge(state) {
     newState.aiHand = [...state.aiHand, ...drawnCards];
   }
   newState.deck = deckAfterDraw;
-  // Active pile leaves play permanently. We park it in discardPile so the
-  // UI / bluff-probability estimator / future ZK circuits can still see
-  // which cards are no longer in circulation.
-  newState.discardPile = [...(state.discardPile || []), ...fullPile];
+  // discardPile after the recycle: if we recycled, the pool moved into
+  // the deck and discards are []. If we didn't (deck had enough), the
+  // fresh fullPile lands on top of the existing discards.
+  newState.discardPile = replenished.recycled > 0
+    ? replenished.discardPile
+    : carryDiscards;
 
   const drawVerb = loser === 'player' ? 'You draw' : 'AI draws';
   if (caughtBluff) {
