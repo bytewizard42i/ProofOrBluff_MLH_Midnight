@@ -624,6 +624,37 @@ button.active {
   box-shadow: 0 0 0 3px rgba(255, 214, 10, 0.25);
 }
 
+/* Slow attention-pulse on the handle field while it's empty. The
+   button below it ("Deal me in") stays disabled until something is
+   typed, so without this hint a first-time player can sit on the
+   menu wondering what to click. The animation stops as soon as
+   focus lands (focus has its own stronger glow above) or once any
+   character is entered (the React side strips the class). */
+@keyframes handle-attention-pulse {
+  0%, 100% {
+    border-color: var(--border);
+    box-shadow: 0 0 0 0 rgba(255, 214, 10, 0.0);
+  }
+  50% {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 6px rgba(255, 214, 10, 0.18),
+                0 0 22px 2px rgba(255, 214, 10, 0.35);
+  }
+}
+.handle-input.handle-input--empty:not(:focus) {
+  animation: handle-attention-pulse 2.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Respect users who've asked the OS to dial animations down —
+     keep the gold border so the field still reads as "your move"
+     but drop the pulsing animation entirely. */
+  .handle-input.handle-input--empty:not(:focus) {
+    animation: none;
+    border-color: var(--gold);
+    box-shadow: 0 0 0 3px rgba(255, 214, 10, 0.18);
+  }
+}
+
 /* Rank display: a giant gold letter with a radial halo behind it. */
 .rank-display {
   position: relative;

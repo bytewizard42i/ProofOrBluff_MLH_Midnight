@@ -391,7 +391,7 @@ function Menu({ onStart, onShowHelp }) {
         <div className="option-group">
           <h3>Your handle</h3>
           <input
-            className="handle-input"
+            className={`handle-input${handle.trim().length === 0 ? ' handle-input--empty' : ''}`}
             type="text"
             value={handle}
             onChange={(e) => setHandle(e.target.value.slice(0, 24))}
