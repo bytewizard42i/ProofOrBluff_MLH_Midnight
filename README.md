@@ -6,32 +6,19 @@
 
 ---
 
-## 🏆 For Judges — One-Command Demo
+## 🏆 For Judges
 
-If you have **Docker** and **Node.js 18+** installed and have cloned
-[`midnight-local-dev`](https://github.com/midnightntwrk/midnight-local-dev)
-next to this repo, you can run the full demo with a single command:
+**One command, one URL.** See [`FOR_JUDGES.md`](FOR_JUDGES.md) for full
+instructions, the health-check cheat sheet, and troubleshooting.
 
 ```bash
 ./judge-demo.sh
 ```
 
-That script:
-
-1. Checks Docker is running
-2. Starts the local Midnight stack (node + indexer + proof-server)
-3. Waits up to 60 seconds for everything to go healthy
-4. Smoke-tests the four endpoints we ship and prints ✓/✗ for each
-5. Installs the browser app's npm deps if needed
-6. Starts the realDeal Vite dev server on port `3016`
-7. Opens `http://localhost:3016` in your default browser
-
-If anything is wrong, the script tells you which step failed and what to
-do about it. **You only need to type one command and one URL.**
-
-> Full health-check reference (what each port serves, what a healthy
-> response looks like, why some ports return "POST is required") lives in
-> [`realDeal/docs/LOCAL_DEV_GUIDE.md`](realDeal/docs/LOCAL_DEV_GUIDE.md).
+That script brings up the whole local Midnight stack, waits for it to
+go healthy, smoke-tests every endpoint, starts the browser app on
+port 3016, and opens your default browser. If you only do one thing:
+run that.
 
 ---
 
