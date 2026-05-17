@@ -12,6 +12,35 @@ import { createDeck, shuffleDeck, dealCards, getNextRank, RANKS } from './deck.j
 import { validatePlay, resolveChallenge, checkWinCondition, formatClaim, rankName } from './rules.js';
 
 /**
+ * Replenish `deck` by recycling `discardPile` when the deck doesn't have
+ * enough cards to satisfy a pending draw. Mirrors the casino "reshoe"
+ * convention: as soon as the live deck would underflow, the discard
+ * pile is shuffled and pushed back as the new tail of the draw deck,
+ * and the discard pile is emptied.
+ *
+ * Returns { deck, discardPile, recycled } so callers can narrate the
+ * reshuffle in the game log when it actually happened.
+ *
+ * If both decks are empty there is genuinely nothing to draw — the
+ * caller is expected to fall back to drawCount = deck.length and log
+ * that the round ran out of cards.
+ */
+function replenishDeck(deck, discardPile, needed) {
+  if (deck.length >= needed) {
+    return { deck, discardPile, recycled: 0 };
+  }
+  if (!discardPile || discardPile.length === 0) {
+    return { deck, discardPile: discardPile || [], recycled: 0 };
+  }
+  const reshuffledDiscards = shuffleDeck(discardPile);
+  return {
+    deck: [...deck, ...reshuffledDiscards],
+    discardPile: [],
+    recycled: reshuffledDiscards.length,
+  };
+}
+
+/**
  * Game state shape:
  * {
  *   mode: 'home' | 'casino',
@@ -188,7 +217,11 @@ function passTurn(state, { player } = { player: 'player' }) {
   // anyone who's been tracking deck order. This matches the casino-table
   // behaviour we want when this gets promoted to the realDeal (Midnight ZK)
   // engine: every draw consumes from a freshly re-randomized deck.
-  const shuffledDeck = shuffleDeck(state.deck);
+  //
+  // If the live deck doesn't have enough cards, recycle the discard pile
+  // back into it (shuffled) before the draw so the game never stalls.
+  const replenished = replenishDeck(state.deck, state.discardPile || [], 1);
+  const shuffledDeck = shuffleDeck(replenished.deck);
   const drawCount = Math.min(1, shuffledDeck.length);
   const drawn = shuffledDeck.slice(0, drawCount);
   const remainingDeck = shuffledDeck.slice(drawCount);
@@ -200,16 +233,22 @@ function passTurn(state, { player } = { player: 'player' }) {
     newState.aiHand = [...state.aiHand, ...drawn];
   }
   newState.deck = remainingDeck;
+  newState.discardPile = replenished.discardPile;
   // Pass control. lastPlay is left as-is (null in the only legal case).
   newState.turn = player === 'player' ? 'ai' : 'player';
   newState.log = [...state.log];
+  if (replenished.recycled > 0) {
+    newState.log.push(
+      `Deck running low — reshuffled ${replenished.recycled} discard(s) back in.`
+    );
+  }
   if (drawCount > 0) {
     newState.log.push(
       `${player === 'player' ? 'You pass' : 'AI passes'} — pick up 1 card from the deck.`
     );
   } else {
     newState.log.push(
-      `${player === 'player' ? 'You pass' : 'AI passes'} — the deck is empty.`
+      `${player === 'player' ? 'You pass' : 'AI passes'} — deck and discards are both empty.`
     );
   }
   return { state: newState };
@@ -297,6 +336,11 @@ function challenge(state) {
   } else {
     newState.log.push(
       `CHALLENGE FAILED! The claim was true. ${drawVerb} ${drawCount} card(s) from the deck (pile discarded).`
+    );
+  }
+  if (replenished.recycled > 0) {
+    newState.log.push(
+      `Deck ran low — reshuffled ${replenished.recycled} discarded card(s) back into the deck.`
     );
   }
   if (caughtBluff && pileWasEmpty && drawCount >= MIN_BLUFF_PENALTY && basePenalty < MIN_BLUFF_PENALTY) {
