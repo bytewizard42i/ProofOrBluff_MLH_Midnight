@@ -36,11 +36,96 @@ docker compose -f standalone.yml down
 ```
 
 ```bash
-# Health check
-curl http://localhost:9944/health        # node — should return some JSON
-curl http://localhost:6300/version        # proof server
+# Quick "is everything alive?" check
 docker ps --filter name=midnight          # all three should be running
+curl http://localhost:9944/health         # node — should return JSON about peers
+curl http://localhost:6300/health         # proof-server — should return {"status":"ok",...}
 ```
+
+---
+
+## Health Checks Explained (for first-timers)
+
+When you spin up the local Midnight stack you get **three** running services
+plus a browser app. They each speak a different protocol, so the way you ask
+"are you alive?" differs per service. Here's everything you'd ever want to
+type into a browser, curl, or Postman, with what a healthy answer looks like.
+
+### The whole stack at a glance
+
+| Service | Port | What it does (in 1 line) |
+|---|---|---|
+| **midnight-node** | `9944` | The blockchain itself — produces blocks every ~2s |
+| **midnight-indexer** | `8088` | Listens to the node and exposes a GraphQL API for "what happened?" queries |
+| **midnight-proof-server** | `6300` | Generates the ZK proofs your contract needs before transactions can be submitted |
+| **POB realDeal app** | `3016` | The browser DApp you actually play |
+
+### Health-check URLs (newbie cheat sheet)
+
+| What you want to know | How to ask | A healthy answer looks like |
+|---|---|---|
+| **Is anything running at all?** | `docker ps --filter name=midnight` | Three rows, each saying `(healthy)` (proof-server may say `Up …` without `healthy` — that's fine, it has no Docker healthcheck) |
+| **Is the node alive?** (browser-friendly) | Open `http://localhost:9944/health` | `{"peers":0,"isSyncing":false,"shouldHavePeers":false}` — peers=0 is correct, this is a single-node local chain |
+| **What version is the node?** | (curl with POST — see below) | `{"jsonrpc":"2.0","id":1,"result":"0.22.3-…"}` |
+| **What block is the node on?** | (curl with POST — see below) | `{"…","result":{"number":"0x1f",…}}` — `0x1f` = block 31. Number grows by 1 every ~2s |
+| **Is the proof-server alive?** | Open `http://localhost:6300/health` | `{"status":"ok","timestamp":"2026-…"}` — timestamp updates every request |
+| **Is the indexer alive?** | (Docker reports it — see below) | `docker inspect --format '{{.State.Health.Status}}' midnight-indexer` → `healthy` |
+
+### Why some of these need curl + POST
+
+The node and the indexer are **JSON-RPC / GraphQL servers**, not webpages. If
+you just open `http://localhost:9944/` in a browser, the node correctly says:
+
+```
+Used HTTP Method is not allowed. POST is required
+```
+
+That's not a bug — that's the node telling you "I only answer structured
+questions, not casual GETs." The midnight-js SDK and the wallet always speak
+JSON-RPC, so you only see this error when a curious human tries the URL.
+
+### Working JSON-RPC queries you can copy-paste
+
+```bash
+# Node version
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"system_version","params":[]}' \
+  http://localhost:9944/
+
+# Node's name (just a sanity ping)
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"system_name","params":[]}' \
+  http://localhost:9944/
+
+# Latest block header (block height is in result.number, hex-encoded)
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"chain_getHeader","params":[]}' \
+  http://localhost:9944/
+```
+
+### Indexer is a special case
+
+The indexer container reports its health via a file inside the container, not
+an HTTP endpoint. So instead of `curl`, ask Docker:
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' midnight-indexer
+# → healthy
+```
+
+If that prints `healthy`, the indexer is ready for the midnight-js SDK to
+query it. (The SDK knows the exact correct GraphQL URL inside the container
+network — you don't need to find it manually.)
+
+### What the browser shows at each port
+
+| URL in browser | What you see | Is it broken? |
+|---|---|---|
+| `http://localhost:3016/` | The POB game UI | ✅ This is the only URL judges should type |
+| `http://localhost:9944/` | "POST is required" | ❌ No — node is alive, just rejecting GET (correct behavior) |
+| `http://localhost:9944/health` | `{"peers":0,…}` | ✅ Healthy |
+| `http://localhost:6300/health` | `{"status":"ok",…}` | ✅ Healthy |
+| `http://localhost:8088/` | "page can't be found" (404) | ❌ No — indexer doesn't serve a webpage at `/`; check Docker health instead |
 
 ---
 
