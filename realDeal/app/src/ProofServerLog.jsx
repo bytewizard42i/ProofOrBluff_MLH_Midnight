@@ -180,25 +180,44 @@ export default function ProofServerLog() {
     }
   }, []);
 
-  // ----- Resize (custom corner grip) --------------------------------
-  const onResizePointerDown = useCallback((e) => {
+  // ----- Resize ------------------------------------------------------
+  // One handler factory powers all four resize affordances:
+  //   - bottom-right corner   → width AND height (diagonal)
+  //   - right edge strip      → width only
+  //   - bottom edge strip     → height only
+  //   - left edge strip       → width AND x   (resize from the left)
+  // `axis` controls which dimensions move. Pointer Capture means the
+  // resize survives fast cursor movement, even off-element.
+  const startResize = (axis) => (e) => {
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
     resizeRef.current = {
       pointerId: e.pointerId,
+      axis,
       startMouseX: e.clientX,
       startMouseY: e.clientY,
+      startX: geom.x,
+      startY: geom.y,
       startW: geom.w,
       startH: geom.h,
     };
-  }, [geom.w, geom.h]);
+  };
 
   const onResizePointerMove = useCallback((e) => {
     const r = resizeRef.current;
     if (!r || r.pointerId !== e.pointerId) return;
-    const dw = e.clientX - r.startMouseX;
-    const dh = e.clientY - r.startMouseY;
-    setGeom((g) => clampGeometry({ ...g, w: r.startW + dw, h: r.startH + dh }));
+    const dx = e.clientX - r.startMouseX;
+    const dy = e.clientY - r.startMouseY;
+    setGeom((g) => {
+      const next = { ...g };
+      if (r.axis.includes('e')) next.w = r.startW + dx;            // east edge
+      if (r.axis.includes('s')) next.h = r.startH + dy;            // south edge
+      if (r.axis.includes('w')) {                                  // west edge
+        next.w = r.startW - dx;
+        next.x = r.startX + dx;
+      }
+      return clampGeometry(next);
+    });
   }, []);
 
   const onResizePointerUp = useCallback((e) => {
@@ -432,6 +451,41 @@ export default function ProofServerLog() {
     </aside>
   );
 }
+
+// Invisible 6-px hit-strips along three edges. Cursor changes give
+// the visual hint; transparent fill keeps the panel design clean.
+// The bottom-right corner grip (rendered separately above) overlaps
+// the right and bottom strips, so the corner gets priority for the
+// last 22px of each edge — that's why these stop short of the corner.
+const edgeHandleStyle = {
+  right: {
+    position: 'absolute',
+    right: -3,
+    top: 4,
+    bottom: 22,
+    width: 8,
+    cursor: 'ew-resize',
+    touchAction: 'none',
+  },
+  left: {
+    position: 'absolute',
+    left: -3,
+    top: 4,
+    bottom: 4,
+    width: 8,
+    cursor: 'ew-resize',
+    touchAction: 'none',
+  },
+  bottom: {
+    position: 'absolute',
+    bottom: -3,
+    left: 4,
+    right: 22,
+    height: 8,
+    cursor: 'ns-resize',
+    touchAction: 'none',
+  },
+};
 
 const miniBtn = {
   background: 'transparent',
