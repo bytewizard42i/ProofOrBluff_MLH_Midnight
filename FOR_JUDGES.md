@@ -153,9 +153,105 @@ Once the browser app opens at `http://localhost:3016`:
 
 - **Left side**: Game Log — narrates every move in the round.
 
-- **Wallet**: connect Lace (when prompted by the app). Local-stack
-  test mnemonics are committed in `realDeal/cli/.env` if you want to
-  drive flows from the CLI side as well.
+- **Wallet**: connect Lace when prompted by the app — see
+  [Connecting Lace](#connecting-lace) below for the one-time setup.
+
+---
+
+## Connecting Lace
+
+The browser app talks to Midnight via the **Lace** wallet extension.
+Lace ships with built-in defaults for the local stack — picking the
+"Undeployed" network in Lace points it at `localhost:9944` / `:8088` /
+`:6300` automatically, no custom URLs needed.
+
+### One-time setup (≈3 minutes)
+
+**1. Install Lace**
+
+From the Chrome Web Store: search **"Lace"** by IOG, or use the direct
+link from [lace.io](https://www.lace.io/). Pin the extension to the
+toolbar for the demo.
+
+**2. Switch Lace to the Undeployed network**
+
+Lace icon → ⚙️ Settings → Network → **Undeployed** (it may be labelled
+"Local" / "Standalone" depending on the Lace version — the one with
+node URL `http://localhost:9944`).
+
+**3. Import the pre-funded test wallet**
+
+Lace icon → Add wallet → **Restore wallet** → 24-word mnemonic. Use
+**Alice's** mnemonic (it's a well-known public BIP39 test phrase):
+
+```
+abandon abandon abandon abandon abandon abandon abandon abandon
+abandon abandon abandon abandon abandon abandon abandon abandon
+abandon abandon abandon abandon abandon abandon abandon art
+```
+
+Pick any wallet name and password. Alice will appear with **0 NIGHT**
+initially — that's expected.
+
+**4. Fund Alice from the genesis wallet**
+
+The local stack has a pre-funded **genesis master wallet** (seed
+`0x00…01`) that holds every minted NIGHT token on the local chain.
+It's not Lace-importable (raw hex, not a mnemonic), so it stays
+behind the CLI and is used solely to fund Lace-friendly accounts.
+
+In a new terminal:
+
+```bash
+cd ~/utils_Midnight/midnight-local-dev   # or wherever you cloned it
+npm start                                 # interactive menu
+```
+
+When the menu appears:
+
+- **Choose `1`** — *Fund accounts from a JSON config file*
+- When asked for a path, press Enter to accept the default
+  (`./accounts.json`) **or** type `./accounts.example.json` if the
+  default doesn't exist yet. That file ships with Alice + Bob
+  mnemonics.
+- The CLI transfers **50,000 NIGHT** to each account and registers
+  DUST automatically (so transactions can pay fees).
+- When it's done, choose `4` to exit.
+
+**5. Connect Lace to Proof or Bluff**
+
+Back in the browser, click **Connect Lace / 1AM** in the page header.
+Lace will pop up asking you to authorise the connection — approve it.
+The header should now show your address and a green dot. Alice's
+balance will appear in the Lace popup.
+
+You're ready to play on-chain.
+
+### Second player (optional)
+
+For a two-player demo, repeat step 3 with **Bob's** mnemonic in a
+**different Chrome profile** (or another browser entirely) so each
+profile has its own Lace instance:
+
+```
+zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo
+zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote
+```
+
+Bob is funded by the same Step 4 — `accounts.example.json` includes
+both Alice and Bob.
+
+### Quick reference
+
+| Wallet | Format | Funded? | Lace-ready? | Use for |
+|---|---|---|---|---|
+| **Genesis** `0x00…01` | raw hex seed | ✅ holds all NIGHT | ❌ | CLI master funder (behind the scenes) |
+| **Alice** `abandon…art` | BIP39 mnemonic | ✅ after Step 4 | ✅ | **Demo player 1 — recommended** |
+| **Bob** `zoo…vote` | BIP39 mnemonic | ✅ after Step 4 | ✅ | Demo player 2 |
+| **P1 / P2** in `realDeal/cli/.env` | raw hex seed | requires CLI funding | ❌ | CLI-driven flows only |
+
+> **Security note**: these are publicly-known test mnemonics that
+> control only local-chain assets. Never use them on a real network.
 
 ---
 
@@ -168,6 +264,10 @@ Once the browser app opens at `http://localhost:3016`:
 | Stack doesn't go healthy in 60s | Old containers stuck, port conflicts | `docker compose -f .../standalone.yml down` then re-run script |
 | Browser shows "page can't be reached" on `:3016` | Vite hasn't started yet | Wait a few more seconds; if it persists, check the terminal where you ran the script for an error |
 | Proof Server panel shows `proof-server unreachable` | Docker stopped while app was running | Bring the stack back up (`up -d`), the panel will reconnect on its next poll |
+| `Connect Lace / 1AM` button says "No Midnight DApp Connector detected" | Lace extension not installed, or extension is disabled for this site | Install Lace from the Chrome Web Store and reload the page — see [Connecting Lace](#connecting-lace) |
+| Lace popup appears but the app stays stuck on "Connecting…" | Lace is on the wrong network | Lace icon → ⚙️ → Network → **Undeployed** — then re-click Connect |
+| Connected, but Alice shows `0 NIGHT` | Funding CLI hasn't been run yet (or stack was wiped) | Run `npm start` → option `1` in `midnight-local-dev/`, then refresh Lace |
+| `forfeit / cancel` buttons fail with "DUST not registered" | Lace account was imported but never funded through the CLI | Same fix — option `1` in the funding CLI auto-registers DUST during funding |
 
 ---
 
