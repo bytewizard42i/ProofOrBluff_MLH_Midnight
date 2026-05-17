@@ -160,15 +160,48 @@ if [ ! -d "$APP_DIR/node_modules" ]; then
   ok "Dependencies installed"
 fi
 
-# Open the browser (best effort — works on most Linux desktops, macOS,
-# and Windows-with-WSL via wslview / explorer.exe).
+# Open the browser. Detection is layered so WSL gets priority handling
+# (WSL is where most demo machines actually live — `xdg-open` would
+# silently fail in a headless WSL session, masking the open).
+#
+# Override:
+#   POB_NO_OPEN=1 ./judge-demo.sh   ← skip auto-open
+#   POB_OPEN_CMD='/path/to/browser' ./judge-demo.sh   ← force a specific opener
+#
+# Order:
+#   1. POB_OPEN_CMD (explicit override)
+#   2. wslview                              (cleanest on WSL when installed)
+#   3. /mnt/c/Windows/explorer.exe          (WSL fallback, always present)
+#   4. cmd.exe /c start                     (WSL fallback #2)
+#   5. xdg-open                             (Linux desktops)
+#   6. open                                 (macOS)
+#   7. explorer.exe                         (native Windows / Git Bash)
 URL="http://localhost:3016/"
-( sleep 4 && (
-  command -v xdg-open    >/dev/null 2>&1 && xdg-open    "$URL" ||
-  command -v wslview     >/dev/null 2>&1 && wslview     "$URL" ||
-  command -v open        >/dev/null 2>&1 && open        "$URL" ||
-  command -v explorer.exe >/dev/null 2>&1 && explorer.exe "$URL"
-) >/dev/null 2>&1 ) &
+open_browser() {
+  if [ "${POB_NO_OPEN:-0}" = "1" ]; then
+    warn "POB_NO_OPEN=1 — skipping auto-open. Visit $URL when ready."
+    return
+  fi
+  local tried=""
+  if [ -n "${POB_OPEN_CMD:-}" ]; then
+    $POB_OPEN_CMD "$URL" >/dev/null 2>&1 && return
+    tried="POB_OPEN_CMD"
+  fi
+  # WSL detection: $WSL_DISTRO_NAME is set on every modern WSL2 distro,
+  # and /proc/version contains 'microsoft' on the rest.
+  if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    command -v wslview >/dev/null 2>&1 && wslview "$URL" >/dev/null 2>&1 && return
+    [ -x /mnt/c/Windows/explorer.exe ] && /mnt/c/Windows/explorer.exe "$URL" >/dev/null 2>&1 && return
+    command -v cmd.exe >/dev/null 2>&1 && cmd.exe /c start "" "$URL" >/dev/null 2>&1 && return
+    tried="$tried wsl-stack"
+  fi
+  command -v xdg-open     >/dev/null 2>&1 && xdg-open     "$URL" >/dev/null 2>&1 && return
+  command -v open         >/dev/null 2>&1 && open         "$URL" >/dev/null 2>&1 && return
+  command -v explorer.exe >/dev/null 2>&1 && explorer.exe "$URL" >/dev/null 2>&1 && return
+  warn "Couldn't auto-open a browser (tried: $tried). Visit $URL manually."
+}
+# Fire the open in the background after Vite has had a moment to bind.
+( sleep 4 && open_browser ) &
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
