@@ -17,6 +17,8 @@ import {
   findDeployedContract,
   deployContract,
 } from '@midnight-ntwrk/midnight-js-contracts';
+import { levelPrivateStateProvider } from
+  '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { httpClientProofProvider } from
   '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from
@@ -174,16 +176,26 @@ function buildProviders({ walletHandle }) {
   const zkConfigProvider = new FetchZkConfigProvider(
     `${window.location.origin}/managed/proof-or-bluff`
   );
+  // Browser-side private state lives in IndexedDB via level-js. We use a
+  // deterministic local-dev password so the encryption layer is satisfied;
+  // this is local-only test data, never production.
+  const privateStateProvider = levelPrivateStateProvider({
+    accountId: walletHandle.coinPublicKey || 'pob-realdeal-anon',
+    privateStoragePasswordProvider: () => 'pob-realdeal-localdev-password-do-not-use-in-prod',
+  });
   return {
-    privateStateProvider: walletHandle.api.privateStateProvider,
+    privateStateProvider,
     publicDataProvider: indexerPublicDataProvider(
       ENDPOINTS.indexer,
       ENDPOINTS.indexerWs
     ),
     zkConfigProvider,
     proofProvider: httpClientProofProvider(ENDPOINTS.proofServer, zkConfigProvider),
-    walletProvider: walletHandle.api,
-    midnightProvider: walletHandle.api,
+    // The DApp Connector's ConnectedAPI does not implement the midnight-js
+    // WalletProvider / MidnightProvider interfaces. wallet.js builds an
+    // adapter that does — use it for both roles.
+    walletProvider: walletHandle.adapter,
+    midnightProvider: walletHandle.adapter,
   };
 }
 

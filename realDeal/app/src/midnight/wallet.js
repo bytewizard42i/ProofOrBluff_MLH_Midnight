@@ -25,6 +25,79 @@
  */
 
 import { NETWORK_ID } from './config.js';
+import { Transaction } from '@midnight-ntwrk/ledger-v8';
+
+// ---------------------------------------------------------------------------
+// Hex <-> Uint8Array helpers. The DApp Connector serialises transactions as
+// hex strings; the ledger uses Uint8Array. These keep the conversion explicit
+// so the bridge logic stays readable.
+// ---------------------------------------------------------------------------
+
+function bytesToHex(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) {
+    s += bytes[i].toString(16).padStart(2, '0');
+  }
+  return s;
+}
+
+function hexToBytes(hex) {
+  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(clean.substr(i * 2, 2), 16);
+  }
+  return out;
+}
+
+/**
+ * Wrap the DApp Connector's ConnectedAPI in the midnight-js WalletProvider +
+ * MidnightProvider shape that `deployContract` / `findDeployedContract` and
+ * the rest of midnight-js expect. The mapping is:
+ *
+ *   getCoinPublicKey()       -> cached shieldedCoinPublicKey
+ *   getEncryptionPublicKey() -> cached shieldedEncryptionPublicKey
+ *   balanceTx(unbound)       -> balanceUnsealedTransaction(serialized)
+ *                                  -> FinalizedTransaction
+ *   submitTx(finalized)      -> submitTransaction(serialized) -> identifier
+ *
+ * Network id is required to deserialize results from the connector.
+ */
+function buildMidnightJsAdapter(api, { coinPublicKey, encryptionPublicKey, networkId }) {
+  return {
+    // --- WalletProvider --------------------------------------------------
+    getCoinPublicKey() { return coinPublicKey; },
+    getEncryptionPublicKey() { return encryptionPublicKey; },
+    async balanceTx(unboundTx /* , ttl */) {
+      const serialized = bytesToHex(unboundTx.serialize());
+      const { tx: balancedHex } = await api.balanceUnsealedTransaction(
+        serialized,
+        { payFees: true }
+      );
+      // The result is a FinalizedTransaction (sealed + bound).
+      return Transaction.deserialize(
+        'signature', 'proof', 'binding',
+        hexToBytes(balancedHex),
+        networkId
+      );
+    },
+    // --- MidnightProvider ------------------------------------------------
+    async submitTx(finalizedTx) {
+      const serialized = bytesToHex(finalizedTx.serialize());
+      // Capture the transaction id *before* submission. The connector's
+      // submitTransaction returns void, so we surface the id ourselves.
+      let txId;
+      try {
+        const ids = finalizedTx.identifiers();
+        txId = Array.isArray(ids) && ids.length > 0 ? ids[0] : finalizedTx.transactionHash();
+      } catch {
+        txId = null;
+      }
+      await api.submitTransaction(serialized);
+      return txId;
+    },
+  };
+}
 
 /**
  * The Initial API entries on `window.midnight` are keyed by UUID
@@ -124,10 +197,23 @@ export async function connectWallet() {
   const unshieldedInfo = await safe(() => api.getUnshieldedAddress());
   const balances       = await collectBalances(api);
 
+  const coinPublicKey       = shieldedInfo?.shieldedCoinPublicKey ?? null;
+  const encryptionPublicKey = shieldedInfo?.shieldedEncryptionPublicKey ?? null;
+
+  // Build the midnight-js-shaped adapter once at connect time so downstream
+  // providers (deployContract, findDeployedContract, callTx) can use it as
+  // both walletProvider and midnightProvider without further plumbing.
+  const adapter = buildMidnightJsAdapter(api, {
+    coinPublicKey,
+    encryptionPublicKey,
+    networkId,
+  });
+
   return {
     api,
-    coinPublicKey: shieldedInfo?.shieldedCoinPublicKey ?? null,
-    encryptionPublicKey: shieldedInfo?.shieldedEncryptionPublicKey ?? null,
+    adapter,
+    coinPublicKey,
+    encryptionPublicKey,
     shieldedAddress: shieldedInfo?.shieldedAddress ?? null,
     address: unshieldedInfo?.unshieldedAddress ?? shieldedInfo?.shieldedAddress ?? null,
     balances,
