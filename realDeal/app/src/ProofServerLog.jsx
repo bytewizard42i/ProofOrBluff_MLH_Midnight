@@ -117,6 +117,18 @@ export default function ProofServerLog() {
   // landed together and which arrived a moment later.
   const seenRef = useRef(new Map()); // key -> { arrivedAt, batchId }
   const batchCounterRef = useRef(0);
+  // The scrollable container for log entries. We auto-scroll to the
+  // top whenever a new batch lands, but only if the user is already
+  // near the top — otherwise we respect their manual scroll position
+  // (they're presumably reading something older and don't want to be
+  // yanked).
+  const logScrollRef = useRef(null);
+  // Bumped whenever a new batch is added so the post-render effect
+  // can decide whether to scroll. We don't put this inside `lines`
+  // because the effect needs to fire AFTER lines have rendered, and
+  // depending on `lines` directly would create an effect on every
+  // poll (including no-op polls).
+  const newBatchTickRef = useRef(0);
   // True only on the very first successful poll. The initial tail
   // can be dozens of historical lines — we don't want to mark all
   // of them as "new" because then nothing visually contrasts. After
@@ -185,6 +197,8 @@ export default function ProofServerLog() {
           for (const k of newKeys) {
             seen.set(k, { arrivedAt: now, batchId });
           }
+          // Signal the scroll effect that a fresh batch just landed.
+          newBatchTickRef.current += 1;
         }
         // Prune anything that's no longer in the visible tail so the
         // map can't grow unbounded over a long session.
@@ -214,6 +228,24 @@ export default function ProofServerLog() {
         setLines(enriched);
         setLastTick(new Date());
         setFlashTick((n) => n + 1);
+
+        // Auto-stick to the top of the log when a fresh batch landed
+        // AND the user is already within 60px of the top. Reading the
+        // ref imperatively here (after setLines schedules the next
+        // render) is intentional: we want to evaluate the scroll
+        // intent BEFORE React inserts the new rows, so "are they at
+        // the top right now" is a question about the previous render.
+        if (newKeys.length > 0 && !isFirstPollRef.current) {
+          const el = logScrollRef.current;
+          if (el && el.scrollTop <= 60) {
+            // Defer to the next frame so the new rows are in the DOM
+            // before we scroll, otherwise we'd be scrolling the
+            // pre-update layout.
+            requestAnimationFrame(() => {
+              if (el) el.scrollTop = 0;
+            });
+          }
+        }
       } catch (err) {
         if (!cancelled) setError(err.message || String(err));
       }
@@ -449,13 +481,17 @@ export default function ProofServerLog() {
       </header>
 
       <div
+        ref={logScrollRef}
         style={{
           flex: 1,
+          minHeight: 0,            // critical for nested flex children
           overflowY: 'auto',
+          overflowX: 'hidden',
           padding: '0.5rem 0.6rem',
           fontFamily: 'JetBrains Mono, Menlo, Consolas, monospace',
           fontSize: '0.72rem',
           lineHeight: 1.45,
+          scrollBehavior: 'smooth', // nicer auto-stick behaviour
         }}
       >
         {error && (
