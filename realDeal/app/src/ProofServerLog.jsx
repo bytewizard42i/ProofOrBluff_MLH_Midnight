@@ -426,26 +426,56 @@ export default function ProofServerLog() {
         <span>polls every {POLL_INTERVAL / 1000}s</span>
       </footer>
 
-      {/* Bottom-right resize grip. Pointer events are captured so the
-          drag continues even if the cursor moves quickly. */}
+      {/* Resize affordances: four handles total. Pointer Capture is
+          set inside startResize() so a fast drag survives the cursor
+          leaving the handle. */}
+      {/* Right edge: width only. */}
       <div
-        onPointerDown={onResizePointerDown}
+        onPointerDown={startResize('e')}
         onPointerMove={onResizePointerMove}
         onPointerUp={onResizePointerUp}
         onPointerCancel={onResizePointerUp}
-        title="Drag to resize"
+        title="Drag to resize width"
+        style={edgeHandleStyle.right}
+      />
+      {/* Left edge: width + x (panel grows leftward). */}
+      <div
+        onPointerDown={startResize('w')}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={onResizePointerUp}
+        onPointerCancel={onResizePointerUp}
+        title="Drag to resize width"
+        style={edgeHandleStyle.left}
+      />
+      {/* Bottom edge: height only. */}
+      <div
+        onPointerDown={startResize('s')}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={onResizePointerUp}
+        onPointerCancel={onResizePointerUp}
+        title="Drag to resize height"
+        style={edgeHandleStyle.bottom}
+      />
+      {/* Bottom-right corner: both axes (diagonal resize). Bigger
+          and brighter than the v1 grip so it reads at a glance. */}
+      <div
+        onPointerDown={startResize('se')}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={onResizePointerUp}
+        onPointerCancel={onResizePointerUp}
+        title="Drag to resize width and height"
         style={{
           position: 'absolute',
           right: 0,
           bottom: 0,
-          width: 18,
-          height: 18,
+          width: 22,
+          height: 22,
           cursor: 'nwse-resize',
           touchAction: 'none',
-          // Two diagonal stripes for the classic resize-grip glyph.
           background:
-            'linear-gradient(135deg, transparent 0 8px, #6b5dab 8px 10px, transparent 10px 13px, #6b5dab 13px 15px, transparent 15px)',
+            'linear-gradient(135deg, transparent 0 8px, #bcb1ff 8px 11px, transparent 11px 14px, #bcb1ff 14px 17px, transparent 17px)',
           borderBottomRightRadius: 12,
+          opacity: 0.9,
         }}
       />
     </aside>
