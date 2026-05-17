@@ -1,24 +1,22 @@
 /**
  * midnight/contract.js — Phase 2 wiring of every exported circuit on
- * proof-or-bluff.compact.
+ * proof-or-bluff.compact, browser flavour, v8 SDK matrix.
  *
- * Design notes:
- *   - `pureCircuits.commitEntropy()` and `pureCircuits.commitPlay()` are
- *     thin off-chain mirrors of the on-chain hashes (added to the .compact
- *     in Phase 2). The client uses them to produce commits the contract
- *     can later re-verify.
- *   - All "private" data (entropies, play witnesses) lives in localStorage
- *     keyed by matchId. For a single-machine demo (Lace profile A vs 1AM
- *     profile B) each wallet has its own storage, so creators / joiners
- *     must paste the missing piece across browsers before revealSeed.
- *     The UI exposes those values explicitly.
- *   - resolveChallenge consumes a private PlayRevealWitness via the
- *     `revealLastPlay` witness slot. We stage the witness with
- *     setPendingReveal() right before the call.
+ * Mirrors realDeal/cli/src/contract.js. Differences:
+ *   - Wallet bridge: comes from Lace / 1AM via the DApp Connector
+ *     (`walletHandle.api`) rather than a headless WalletFacade.
+ *   - ZK assets: served over HTTP from /managed/proof-or-bluff/ by Vite
+ *     (fetchZkConfigProvider) rather than read from disk.
+ *   - Persistence: browser localStorage rather than .pob-state/.
+ *
+ * The on-chain coding (commits, witness staging, result decoding) is
+ * identical to the CLI so behaviour is consistent across surfaces.
  */
 
-import { findDeployedContract, deployContract } from
-  '@midnight-ntwrk/midnight-js-contracts';
+import {
+  findDeployedContract,
+  deployContract,
+} from '@midnight-ntwrk/midnight-js-contracts';
 import { httpClientProofProvider } from
   '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from
@@ -27,21 +25,20 @@ import { fetchZkConfigProvider } from
   '@midnight-ntwrk/midnight-js-fetch-zk-config-provider';
 import { setNetworkId } from
   '@midnight-ntwrk/midnight-js-network-id';
-import { nativeToken } from '@midnight-ntwrk/ledger';
+import * as ledger from '@midnight-ntwrk/ledger-v8';
+import { CompiledContract } from '@midnight-ntwrk/compact-js';
 
 import { Contract, pureCircuits } from '@pob/contract';
 import { ENDPOINTS, NETWORK_ID, getContractAddress, setContractAddress }
   from './config.js';
 
 // ---------------------------------------------------------------------------
-// Network registration
+// Network registration (NetworkId is just a string in v4.0.4 — pass through).
 
-// In midnight-js-network-id v4.0.4 NetworkId is just a string alias
-// ('undeployed' | 'testnet' | 'mainnet') — pass the raw id through.
 setNetworkId(NETWORK_ID);
 
 // ---------------------------------------------------------------------------
-// Witness staging (used by resolveChallenge)
+// Witness staging — used by resolveChallenge.
 
 let _pendingReveal = null;
 export function setPendingReveal(reveal) { _pendingReveal = reveal; }
@@ -60,7 +57,7 @@ const witnesses = {
 };
 
 // ---------------------------------------------------------------------------
-// Encoding helpers
+// Encoding helpers.
 
 function randomBytes32() {
   const out = new Uint8Array(32);
@@ -90,12 +87,6 @@ function emptyWitnessSlot() {
   return { rank: 0n, salt: new Uint8Array(32) };
 }
 
-/**
- * Build a PlayRevealWitness in the shape pureCircuits.commitPlay expects.
- * `cards` is an array of up to 4 numeric ranks (2..14). Unused slots are
- * filled with zeros and a per-slot fresh salt (so the hash domain is
- * still well-defined).
- */
 function buildPlayReveal(cards) {
   if (cards.length < 1 || cards.length > 4) {
     throw new Error('Play must declare 1-4 cards');
@@ -115,8 +106,18 @@ function buildPlayReveal(cards) {
   };
 }
 
+// Result-shape extraction tolerant to v8 SDK key changes.
+const extractTxId = (r) =>
+  r?.public?.txId ?? r?.public?.txHash ?? r?.public?.transactionId ?? null;
+const extractResult = (r) =>
+  r?.public?.result
+    ?? r?.public?.callResult?.result
+    ?? r?.private?.result
+    ?? r?.result
+    ?? null;
+
 // ---------------------------------------------------------------------------
-// LocalStorage keys (private state per matchId)
+// LocalStorage keys (private state per matchId).
 
 const KEY_ENTROPY     = (mid, role) => `pob:realdeal:entropy:${mid}:${role}`;
 const KEY_PLAY_REVEAL = (mid)       => `pob:realdeal:play:${mid}`;
@@ -130,7 +131,6 @@ export function getStoredEntropy(matchId, role) {
 }
 
 export function importEntropy(matchId, role, entropyHex) {
-  // Used when the opponent pastes their entropy after a join.
   if (!/^[0-9a-fA-F]{64}$/.test(entropyHex.replace(/^0x/, ''))) {
     throw new Error('Entropy must be a 32-byte hex string');
   }
@@ -138,7 +138,6 @@ export function importEntropy(matchId, role, entropyHex) {
 }
 
 function persistPlayReveal(matchId, reveal) {
-  // Convert BigInt + Uint8Array to a JSON-friendly shape.
   const dump = {
     count: reveal.count.toString(),
     rank0: reveal.rank0.toString(), salt0: bytesToHex(reveal.salt0),
@@ -169,7 +168,7 @@ function loadPlayReveal(matchId) {
 }
 
 // ---------------------------------------------------------------------------
-// Provider bundle + contract resolution
+// Provider bundle.
 
 function buildProviders({ walletHandle }) {
   return {
@@ -187,19 +186,20 @@ function buildProviders({ walletHandle }) {
   };
 }
 
-async function resolveContract(providers) {
-  const contract = new Contract(witnesses);
+async function resolveContract(providers, compiledContract) {
   const persisted = getContractAddress();
 
   if (persisted) {
     return findDeployedContract(providers, {
       contractAddress: persisted,
-      contract,
+      compiledContract,
+      privateStateId: 'pob:realdeal:private',
+      initialPrivateState: {},
     });
   }
 
   const deployed = await deployContract(providers, {
-    contract,
+    compiledContract,
     privateStateId: 'pob:realdeal:private',
     initialPrivateState: {},
   });
@@ -208,11 +208,23 @@ async function resolveContract(providers) {
 }
 
 // ---------------------------------------------------------------------------
-// Public factory
+// Public factory.
 
 export async function getContractApi({ walletHandle }) {
   const providers = buildProviders({ walletHandle });
-  const deployed = await resolveContract(providers);
+
+  // v8 midnight-js requires the CompiledContract wrapper around the
+  // raw Contract class. fetchZkConfigProvider serves the assets over
+  // HTTP, but the CompiledContract still needs an asset path tag so
+  // the runtime can locate them.
+  const compiledContract = CompiledContract.make('proof-or-bluff', Contract).pipe(
+    CompiledContract.withWitnesses(witnesses),
+    CompiledContract.withCompiledFileAssets(
+      `${window.location.origin}/managed/proof-or-bluff`
+    ),
+  );
+
+  const deployed = await resolveContract(providers, compiledContract);
   const tx = deployed.callTx;
 
   const ensure = (name) => {
@@ -230,10 +242,13 @@ export async function getContractApi({ walletHandle }) {
     return BigInt(Math.floor(Date.now() / 1000));
   }
 
+  // ShieldedCoinInfo.color is Bytes<32>. ledger-v8's nativeToken().raw
+  // is a hex string used as a balance-map key — convert to bytes here.
+  const nativeColorBytes = hexToBytes(ledger.nativeToken().raw);
   function nativeCoin(value) {
     return {
       nonce: randomBytes32(),
-      color: nativeToken(),
+      color: nativeColorBytes,
       value: BigInt(value),
     };
   }
@@ -242,68 +257,51 @@ export async function getContractApi({ walletHandle }) {
     address: deployed.deployTxData?.public?.contractAddress
       || getContractAddress(),
 
-    // Expose the indexer view of public match state (used by the UI to
-    // poll phase / scores / hand sizes between writes).
     async getMatch(matchId) {
-      const result = await ensure('getMatch')(hexToBytes(matchId));
-      return result.public.result;
+      const r = await ensure('getMatch')(hexToBytes(matchId));
+      return extractResult(r);
     },
     async getMatchPhase(matchId) {
-      const result = await ensure('getMatchPhase')(hexToBytes(matchId));
-      return Number(result.public.result);
+      const r = await ensure('getMatchPhase')(hexToBytes(matchId));
+      const v = extractResult(r);
+      return v == null ? null : Number(v);
     },
     async getWinner(matchId) {
-      const result = await ensure('getWinner')(hexToBytes(matchId));
-      return Number(result.public.result);
+      const r = await ensure('getWinner')(hexToBytes(matchId));
+      const v = extractResult(r);
+      return v == null ? null : Number(v);
     },
 
-    // ----- createMatch (Player One) ---------------------------------------
     async createMatch({ mode, wagerAmount }) {
       const entropy = randomBytes32();
       const entropyHex = bytesToHex(entropy);
       const commit = pureCircuits.commitEntropy(entropy);
-      const coin = nativeCoin(wagerAmount);
-
       const result = await ensure('createMatch')(
         BigInt(mode),
         BigInt(wagerAmount),
         commit,
         nowSec(),
-        coin
+        nativeCoin(wagerAmount)
       );
-
-      const matchId = bytesToHex(result.public.result);
-      persistEntropy(matchId, 'p1', entropyHex);
-      return {
-        matchId,
-        entropy: entropyHex,
-        txHash: result.public.txHash,
-      };
+      const matchIdBytes = extractResult(result);
+      const matchId = matchIdBytes ? bytesToHex(matchIdBytes) : null;
+      if (matchId) persistEntropy(matchId, 'p1', entropyHex);
+      return { matchId, entropy: entropyHex, txId: extractTxId(result) };
     },
 
-    // ----- joinMatch (Player Two) -----------------------------------------
     async joinMatch({ matchId, wagerAmount }) {
       const entropy = randomBytes32();
       const entropyHex = bytesToHex(entropy);
       const commit = pureCircuits.commitEntropy(entropy);
-      const coin = nativeCoin(wagerAmount);
-
       const result = await ensure('joinMatch')(
         hexToBytes(matchId),
         commit,
-        coin
+        nativeCoin(wagerAmount)
       );
       persistEntropy(matchId, 'p2', entropyHex);
-      return {
-        entropy: entropyHex,
-        txHash: result.public.txHash,
-      };
+      return { entropy: entropyHex, txId: extractTxId(result) };
     },
 
-    // ----- revealSeed (either player, after both entropies are exchanged) -
-    // The caller MUST have both entropies in localStorage. Use
-    // importEntropy(matchId, 'p1' | 'p2', hex) to paste in the missing one
-    // before this call.
     async revealSeed({ matchId, startingRank = 0 }) {
       const p1 = getStoredEntropy(matchId, 'p1');
       const p2 = getStoredEntropy(matchId, 'p2');
@@ -320,23 +318,15 @@ export async function getContractApi({ walletHandle }) {
         BigInt(startingRank),
         nowSec()
       );
-      return { txHash: result.public.txHash };
+      return { txId: extractTxId(result) };
     },
 
-    // ----- playCards (active player makes a claim) ------------------------
-    // `cards` is an array of 1-4 numeric ranks (2..14, where 14 = Ace).
-    // The contract only sees the commit + claimedRank + claimedCount; the
-    // actual ranks (which may be a bluff) stay in localStorage until
-    // resolveChallenge.
     async playCards({ matchId, cards, claimedRank, claimedCount }) {
       if (claimedCount !== cards.length) {
-        // The contract enforces count consistency only at challenge time,
-        // but we'd rather catch the bug client-side.
         throw new Error('claimedCount must equal cards.length');
       }
       const reveal = buildPlayReveal(cards);
       const playCommit = pureCircuits.commitPlay(reveal);
-
       const result = await ensure('playCards')(
         hexToBytes(matchId),
         playCommit,
@@ -347,76 +337,63 @@ export async function getContractApi({ walletHandle }) {
       persistPlayReveal(matchId, reveal);
       return {
         playCommit: bytesToHex(playCommit),
-        txHash: result.public.txHash,
+        txId: extractTxId(result),
       };
     },
 
-    // ----- acceptClaim / challengeClaim (opponent decides) ----------------
     async acceptClaim({ matchId }) {
-      const result = await ensure('acceptClaim')(
-        hexToBytes(matchId),
-        nowSec()
-      );
-      return { txHash: result.public.txHash };
+      const r = await ensure('acceptClaim')(hexToBytes(matchId), nowSec());
+      return { txId: extractTxId(r) };
     },
 
     async challengeClaim({ matchId }) {
-      const result = await ensure('challengeClaim')(
-        hexToBytes(matchId),
-        nowSec()
-      );
-      return { txHash: result.public.txHash };
+      const r = await ensure('challengeClaim')(hexToBytes(matchId), nowSec());
+      return { txId: extractTxId(r) };
     },
 
-    // ----- resolveChallenge (THE ZK SHOWCASE) -----------------------------
-    // Stages the persisted play reveal as the private witness, then calls
-    // the circuit. The contract recomputes the hash and discloses ONLY a
-    // boolean (true ⇒ honest claim, false ⇒ bluff).
     async resolveChallenge({ matchId }) {
       const reveal = loadPlayReveal(matchId);
       setPendingReveal(reveal);
       try {
-        const result = await ensure('resolveChallenge')(
+        const r = await ensure('resolveChallenge')(
           hexToBytes(matchId),
           nowSec()
         );
         return {
-          honest: Boolean(result.public.result),
-          txHash: result.public.txHash,
+          honest: Boolean(extractResult(r)),
+          txId: extractTxId(r),
         };
       } finally {
         clearPendingReveal();
       }
     },
 
-    // ----- claimPayout (winner pulls the shielded pot) --------------------
     async claimPayout({ matchId }) {
-      const result = await ensure('claimPayout')(hexToBytes(matchId));
-      return { txHash: result.public.txHash };
+      const r = await ensure('claimPayout')(hexToBytes(matchId));
+      return { txId: extractTxId(r) };
     },
 
-    // ----- Anti-griefing paths --------------------------------------------
     async cancelUnjoinedMatch({ matchId }) {
-      const result = await ensure('cancelUnjoinedMatch')(hexToBytes(matchId));
-      return { txHash: result.public.txHash };
+      const r = await ensure('cancelUnjoinedMatch')(hexToBytes(matchId));
+      return { txId: extractTxId(r) };
     },
 
     async forfeitAbandonedMatch({ matchId, timeoutSeconds = 86_400n }) {
-      const result = await ensure('forfeitAbandonedMatch')(
+      const r = await ensure('forfeitAbandonedMatch')(
         hexToBytes(matchId),
         nowSec(),
         BigInt(timeoutSeconds)
       );
-      return { txHash: result.public.txHash };
+      return { txId: extractTxId(r) };
     },
 
     async forfeitStalledChallenge({ matchId, timeoutSeconds = 3600n }) {
-      const result = await ensure('forfeitStalledChallenge')(
+      const r = await ensure('forfeitStalledChallenge')(
         hexToBytes(matchId),
         nowSec(),
         BigInt(timeoutSeconds)
       );
-      return { txHash: result.public.txHash };
+      return { txId: extractTxId(r) };
     },
   };
 }
