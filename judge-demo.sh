@@ -190,9 +190,46 @@ open_browser() {
   # WSL detection: $WSL_DISTRO_NAME is set on every modern WSL2 distro,
   # and /proc/version contains 'microsoft' on the rest.
   if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    # Prefer a *real* full browser window with a new window so we get
+    # a fresh, resizable frame. The previous strategy used Windows'
+    # default URL handler via explorer.exe, which on some setups
+    # routes through a "PWA / app mode" Chromium window that the
+    # user can't resize. --new-window forces a normal tabbed window.
+    #
+    # The order here looks at full installed paths first so we never
+    # land in an app-mode shell:
+    local chrome_paths=(
+      "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
+      "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe"
+      "/mnt/c/Users/${USER}/AppData/Local/Google/Chrome/Application/chrome.exe"
+    )
+    for chrome in "${chrome_paths[@]}"; do
+      if [ -x "$chrome" ]; then
+        # Background + disown so Chrome keeps running after the
+        # script exits (Vite is the foreground process).
+        "$chrome" --new-window "$URL" >/dev/null 2>&1 &
+        disown 2>/dev/null || true
+        return
+      fi
+    done
+    # Edge as a Chromium fallback if Chrome isn't installed — same
+    # --new-window flag, since msedge.exe is just Chromium under the hood.
+    local edge_paths=(
+      "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+      "/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe"
+    )
+    for edge in "${edge_paths[@]}"; do
+      if [ -x "$edge" ]; then
+        "$edge" --new-window "$URL" >/dev/null 2>&1 &
+        disown 2>/dev/null || true
+        return
+      fi
+    done
+    # Last-resort WSL fallbacks (these may end up in an app-mode shell,
+    # but at least the demo URL gets to the user).
     command -v wslview >/dev/null 2>&1 && wslview "$URL" >/dev/null 2>&1 && return
-    [ -x /mnt/c/Windows/explorer.exe ] && /mnt/c/Windows/explorer.exe "$URL" >/dev/null 2>&1 && return
     command -v cmd.exe >/dev/null 2>&1 && cmd.exe /c start "" "$URL" >/dev/null 2>&1 && return
+    [ -x /mnt/c/Windows/explorer.exe ] && /mnt/c/Windows/explorer.exe "$URL" >/dev/null 2>&1 && return
     tried="$tried wsl-stack"
   fi
   command -v xdg-open     >/dev/null 2>&1 && xdg-open     "$URL" >/dev/null 2>&1 && return
