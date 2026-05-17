@@ -117,6 +117,12 @@ export default function ProofServerLog() {
   // landed together and which arrived a moment later.
   const seenRef = useRef(new Map()); // key -> { arrivedAt, batchId }
   const batchCounterRef = useRef(0);
+  // True only on the very first successful poll. The initial tail
+  // can be dozens of historical lines — we don't want to mark all
+  // of them as "new" because then nothing visually contrasts. After
+  // the first batch we flip this off and subsequent polls highlight
+  // only the genuinely new arrivals.
+  const isFirstPollRef = useRef(true);
   // Live drag/resize state held in refs so mousemove handlers don't
   // trigger React re-renders on every pixel.
   const dragRef = useRef(null);
@@ -164,7 +170,16 @@ export default function ProofServerLog() {
         for (const ln of parsed) {
           if (!seen.has(ln.key)) newKeys.push(ln.key);
         }
-        if (newKeys.length > 0) {
+        if (isFirstPollRef.current) {
+          // Seed the diff map without bumping the batch counter so
+          // the initial 40 lines render in the calm/default style.
+          // The next poll's new arrivals (if any) will be the first
+          // batch that actually shows up colored.
+          for (const k of newKeys) {
+            seen.set(k, { arrivedAt: now, batchId: 0 });
+          }
+          isFirstPollRef.current = false;
+        } else if (newKeys.length > 0) {
           batchCounterRef.current += 1;
           const batchId = batchCounterRef.current;
           for (const k of newKeys) {
