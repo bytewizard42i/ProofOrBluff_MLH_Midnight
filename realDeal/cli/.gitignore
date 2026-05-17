@@ -1,6 +1,9 @@
 node_modules/
-.env
+# .env IS committed: it holds well-known public test seeds for the
+# local 'undeployed' Midnight stack only. See LOCAL_DEV_GUIDE.md.
+# .env.local stays gitignored for any per-machine overrides.
 .env.local
 .pob-state/
 private-state-*/
+midnight-level-db/
 *.log
