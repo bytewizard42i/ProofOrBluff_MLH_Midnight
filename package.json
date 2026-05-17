@@ -4,6 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Proof or Bluff (POB) — a Midnight-native privacy-preserving bluffing card game. MLH x Midnight Hackathon May 15-17 2026.",
+  "workspaces": [
+    "realDeal/app",
+    "realDeal/cli"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -13,7 +17,8 @@
   },
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "@midnight-ntwrk/compact-runtime": "0.16.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
