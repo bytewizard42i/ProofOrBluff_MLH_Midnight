@@ -70,10 +70,28 @@ function buildMidnightJsAdapter(api, { coinPublicKey, encryptionPublicKey, netwo
     getEncryptionPublicKey() { return encryptionPublicKey; },
     async balanceTx(unboundTx /* , ttl */) {
       const serialized = bytesToHex(unboundTx.serialize());
-      const { tx: balancedHex } = await api.balanceUnsealedTransaction(
-        serialized,
-        { payFees: true }
-      );
+      // eslint-disable-next-line no-console
+      console.log('[balanceTx] calling Lace.balanceUnsealedTransaction',
+        { bytes: serialized.length / 2 });
+      const t0 = performance.now();
+      let result;
+      try {
+        result = await api.balanceUnsealedTransaction(
+          serialized,
+          { payFees: true }
+        );
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[balanceTx] Lace threw:', e);
+        throw e;
+      }
+      // eslint-disable-next-line no-console
+      console.log('[balanceTx] Lace returned in',
+        Math.round(performance.now() - t0), 'ms', { keys: Object.keys(result || {}) });
+      const balancedHex = result?.tx;
+      if (!balancedHex) {
+        throw new Error('Lace.balanceUnsealedTransaction returned no .tx field');
+      }
       // The result is a FinalizedTransaction (sealed + bound).
       return Transaction.deserialize(
         'signature', 'proof', 'binding',

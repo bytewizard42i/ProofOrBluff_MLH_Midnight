@@ -213,7 +213,23 @@ function buildProviders({ walletHandle }) {
   // ZKConfigurationReadError without the cause attached, hiding what
   // actually went wrong (CORS, MIME, parse, etc.).
   const wrap = (label, fn) => async (circuitId) => {
-    const url = `${baseURL}/${label === 'zkir' ? 'zkir' : 'keys'}/${circuitId}.${label}`;
+    // Built-in circuits (zswap inputs/outputs, dust spend, …) are
+    // identified by paths like "midnight/zswap/output". Proof-server has
+    // these compiled in; midnight-js only asks our provider so it can
+    // *try* to supply overrides. We must signal "not here" by throwing —
+    // httpClientProofProvider wraps the call in try/catch and falls
+    // back to the built-in keys when undefined is returned. If we let
+    // the fetch resolve to Vite's SPA fallback (1146 bytes of HTML),
+    // proof-server tries to parse HTML as an IR and rejects with 400.
+    if (circuitId.startsWith('midnight/')) {
+      throw new Error(`built-in circuit ${circuitId} is handled by proof-server`);
+    }
+    // compactc emits two ZKIR formats: <name>.zkir (JSON debug) and
+    // <name>.bzkir (binary). The proof server expects the BINARY form;
+    // the JSON one is rejected with "Unsupported ZKIR version".
+    const ext = label === 'zkir' ? 'bzkir' : label;
+    const dir = label === 'zkir' ? 'zkir' : 'keys';
+    const url = `${baseURL}/${dir}/${circuitId}.${ext}`;
     try {
       const res = await fetch(url);
       if (!res.ok) {
@@ -238,10 +254,16 @@ function buildProviders({ walletHandle }) {
     getVerifierKey,
     getProverKey,
     getZKIR,
+    // Batch helpers. The base ZKConfigProvider class supplies these by
+    // default; our plain wrapped object needs them explicitly because
+    // midnight-js calls them in several places (deploy, find, callTx).
+    async getVerifierKeys(circuitIds) {
+      return Promise.all(
+        circuitIds.map((id) => getVerifierKey(id).then((k) => [id, k]))
+      );
+    },
     // httpClientProofProvider calls .get(keyLocation) to bundle all three
-    // pieces into a single { proverKey, verifierKey, zkir } object. The
-    // base ZKConfigProvider class provides this; we re-implement it here
-    // because our wrapped object isn't extending that class.
+    // pieces into a single { proverKey, verifierKey, zkir } object.
     async get(circuitId) {
       const [proverKey, verifierKey, zkir] = await Promise.all([
         getProverKey(circuitId),

@@ -65,9 +65,20 @@ function clampGeometry(g) {
   return { x, y, w, h };
 }
 
+// docker often emits colored output for logs (the proof-server uses
+// tracing -> the ANSI-colored format). Strip those escape sequences
+// before parsing so the panel doesn't render literal '\u001b[2m'
+// rubbish and so each line stays a manageable length.
+//
+// Regex matches a CSI escape: ESC [ <params> <intermediate> <final>.
+// The params/intermediate ranges cover every variant we'll see in
+// docker output (mostly SGR sequences like \e[32m, \e[1;33m, \e[0m).
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\u001b\[[0-9;]*[A-Za-z]/g;
+
 function classifyLine(line) {
   if (!line) return null;
-  const text = line.trim();
+  const text = line.replace(ANSI_RE, '').trim();
   if (!text) return null;
 
   let kind = 'info';
