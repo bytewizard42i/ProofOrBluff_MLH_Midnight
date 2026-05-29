@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 dist/
 build/
 # .env is committed for realDeal/cli/ (public local-dev test seeds —
