@@ -58,16 +58,17 @@ Once funded, click **Connect Lace / 1AM** in the realDeal header.
 
 ## Phase 1 vs Phase 2
 
-| Capability | Phase 1 (now) | Phase 2 (next sprint) |
+| Capability | Phase 1 | Phase 2 (current) |
 |---|---|---|
 | Vite app boots at :3016 | ✅ | — |
 | Wallet detection + connect | ✅ | — |
 | Compact bindings imported | ✅ | — |
 | `createMatch` on-chain | ✅ | — |
-| `joinMatch` … `claimPayout` | 🟡 stubbed | wire each + indexer subscription |
-| Indexer-driven game state | 🟡 stubbed | replace localStorage with contract reads |
+| `joinMatch` … `claimPayout` | 🟡 stubbed | ✅ all wired |
+| Indexer-driven game state | 🟡 stubbed | ✅ getMatch/getMatchPhase/getWinner |
 | AI opponent | ❌ removed | realDeal is PvP only |
-| ZK proof on challenge | 🟡 stubbed | install `PlayRevealWitness` then `resolveChallenge` |
+| ZK proof on challenge | 🟡 stubbed | ✅ resolveChallenge with witness staging |
+| claimWinnings (wager provider) | 🟡 stub | ✅ wired to claimPayout |
 
 ## Directory map
 

@@ -6,18 +6,19 @@ import { getContractApi } from './midnight/contract.js';
 
 /**
  * RealDealHeader — sits above the demoLand-style game UI and exposes the
- * Midnight-backed actions that are actually wired in Phase 1.
+ * Midnight-backed actions that are actually wired.
  *
- * What this banner offers right now:
+ * What this banner offers:
  *   ✅ Detect Lace / 1AM wallet on the page
  *   ✅ Connect to the wallet and surface the Coin Public Key
  *   ✅ Fire `createMatch` on-chain and show matchId + tx hash
- *   🟡 Every other circuit is a stub in midnight/contract.js
+ *   ✅ All circuits wired: joinMatch, revealSeed, playCards, acceptClaim,
+ *      challengeClaim, resolveChallenge, claimPayout, cancelUnjoinedMatch,
+ *      forfeitAbandonedMatch, forfeitStalledChallenge
  *
  * The game UI below this header continues to use the local engine.js so
- * a hacker can still play single-player demoLand-style during dev. As
- * Phase 2 wires each circuit, the providers/realdeal/ layer will swap
- * those calls over.
+ * a hacker can still play single-player demoLand-style during dev. The
+ * providers/realdeal/ layer is fully wired for on-chain play.
  *
  * TODO Phase 3: replace this bare-bones banner with an admin-only
  * MidnightVitals diagnostic panel (live ping of proof server / indexer /
@@ -226,9 +227,9 @@ export default function RealDealHeader() {
       )}
 
       <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: '#988ad6' }}>
-        The game UI below still runs the local engine for dev. As Phase 2 wires
-        each circuit (joinMatch → claimPayout), those calls swap over to
-        on-chain transactions. See <code>src/midnight/README.md</code>.
+        The game UI below still runs the local engine for dev. All on-chain
+        circuits (joinMatch → claimPayout) are wired in providers/realdeal/.
+        See <code>src/midnight/README.md</code>.
       </div>
     </div>
   );

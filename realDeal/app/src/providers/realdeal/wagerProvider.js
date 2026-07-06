@@ -2,12 +2,12 @@
  * wagerProvider.js — realDeal IWagerProvider implementation.
  *
  * Wraps the wallet + native-token coin construction used during
- * createMatch and joinMatch. Phase 1 surfaces `connectWallet` and
- * `getWalletState`; staking/claim hooks are stubs until the matching
- * contract circuits are wired in Phase 2.
+ * createMatch and joinMatch. All circuits are now wired through
+ * the game provider's contract API.
  */
 
 import { connectWallet, subscribeWalletState } from '../../midnight/wallet.js';
+import { getContractApi } from '../../midnight/contract.js';
 
 export class RealDealWagerProvider {
   constructor() {
@@ -48,8 +48,12 @@ export class RealDealWagerProvider {
     return this.handle;
   }
 
-  async claimWinnings() {
-    throw new Error('Phase 2: claimWinnings (claimPayout) not yet wired.');
+  async claimWinnings({ matchId } = {}) {
+    if (!this.handle) throw new Error('Wallet not connected.');
+    const api = await getContractApi({ walletHandle: this.handle });
+    const id = matchId || window.localStorage.getItem('pob:realdeal:active-match');
+    if (!id) throw new Error('No active match to claim winnings from.');
+    return api.claimPayout({ matchId: id });
   }
 
   getWagerState() {
