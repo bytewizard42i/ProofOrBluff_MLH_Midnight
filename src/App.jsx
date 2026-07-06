@@ -469,6 +469,129 @@ function Menu({ onStart, onShowHelp }) {
 // Result overlay
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * Dependency-free confetti burst rendered on a full-screen canvas. Spawns
+ * a wave of gold/violet/white pieces that fall, spin, and fade so the win
+ * overlay feels like a real celebration. Cleans up its rAF loop on unmount.
+ */
+function Confetti() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+    const ctx = canvas.getContext('2d');
+    let raf = 0;
+    let running = true;
+
+    const resize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+    resize();
+    window.addEventListener('resize', resize);
+
+    const COLORS = ['#ffd60a', '#fff5b5', '#c9a700', '#9d4edd', '#ffffff'];
+    const reduceMotion = window.matchMedia
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const COUNT = reduceMotion ? 60 : 180;
+
+    const pieces = Array.from({ length: COUNT }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * -canvas.height,
+      w: 6 + Math.random() * 8,
+      h: 8 + Math.random() * 10,
+      color: COLORS[(Math.random() * COLORS.length) | 0],
+      rot: Math.random() * Math.PI * 2,
+      vr: (Math.random() - 0.5) * 0.3,
+      vx: (Math.random() - 0.5) * 2.4,
+      vy: 2.5 + Math.random() * 3.5,
+      sway: Math.random() * Math.PI * 2,
+      swaySpeed: 0.02 + Math.random() * 0.04,
+    }));
+
+    const start = performance.now();
+    const tick = (now) => {
+      if (!running) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const elapsed = now - start;
+      pieces.forEach((p) => {
+        p.sway += p.swaySpeed;
+        p.x += p.vx + Math.sin(p.sway) * 0.8;
+        p.y += p.vy;
+        p.rot += p.vr;
+        if (p.y > canvas.height + 20) {
+          // Recycle pieces back to the top for ~5s of continuous fall.
+          if (elapsed < 5000) {
+            p.y = -20;
+            p.x = Math.random() * canvas.width;
+          }
+        }
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = elapsed > 5000 ? Math.max(0, 1 - (elapsed - 5000) / 1500) : 1;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      });
+      if (elapsed < 6500) {
+        raf = requestAnimationFrame(tick);
+      }
+    };
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      running = false;
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', resize);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="confetti-canvas" aria-hidden="true" />;
+}
+
+/** Shimmering pile-of-gold trophy shown when the player wins. */
+function GoldTreasure() {
+  return (
+    <div className="gold-treasure" aria-hidden="true">
+      <svg viewBox="0 0 200 150" width="180" height="135" role="img">
+        <defs>
+          <linearGradient id="pob-gold" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#fff5b5" />
+            <stop offset="45%" stopColor="#ffd60a" />
+            <stop offset="100%" stopColor="#b8860b" />
+          </linearGradient>
+          <radialGradient id="pob-glow" cx="50%" cy="40%" r="60%">
+            <stop offset="0%" stopColor="rgba(255,214,10,0.55)" />
+            <stop offset="100%" stopColor="rgba(255,214,10,0)" />
+          </radialGradient>
+        </defs>
+        <ellipse cx="100" cy="120" rx="90" ry="26" fill="url(#pob-glow)" />
+        {/* Coins */}
+        <g fill="url(#pob-gold)" stroke="#8a6700" strokeWidth="1.5">
+          <ellipse cx="60" cy="118" rx="22" ry="9" />
+          <ellipse cx="140" cy="118" rx="22" ry="9" />
+          <ellipse cx="100" cy="124" rx="26" ry="10" />
+          <ellipse cx="80" cy="104" rx="20" ry="8" />
+          <ellipse cx="122" cy="104" rx="20" ry="8" />
+          <ellipse cx="100" cy="92" rx="18" ry="7" />
+        </g>
+        {/* Trophy cup */}
+        <g fill="url(#pob-gold)" stroke="#8a6700" strokeWidth="2">
+          <path d="M70 28 H130 V44 a30 30 0 0 1 -60 0 Z" />
+          <path d="M70 32 h-14 a10 10 0 0 0 10 16 M130 32 h14 a10 10 0 0 1 -10 16"
+                fill="none" strokeWidth="4" />
+          <rect x="94" y="72" width="12" height="14" />
+          <rect x="82" y="86" width="36" height="8" rx="2" />
+        </g>
+        <polygon points="100,18 103,26 111,26 105,31 107,39 100,34 93,39 95,31 89,26 97,26"
+                 fill="#fff5b5" />
+      </svg>
+    </div>
+  );
+}
+
 function ResultOverlay({ winner, onRematch, onMenu }) {
   const isPlayerWin = winner === 'player';
   const aiLine = useMemo(
@@ -477,7 +600,9 @@ function ResultOverlay({ winner, onRematch, onMenu }) {
   );
   return (
     <div className="result-overlay">
+      {isPlayerWin && <Confetti />}
       <div className={`result-card ${isPlayerWin ? 'win' : 'lose'}`}>
+        {isPlayerWin && <GoldTreasure />}
         <h2>{isPlayerWin ? 'You Win' : 'The Ai Wins'}</h2>
         <p className="display" style={{ color: 'var(--text-dim)' }}>
           {isPlayerWin

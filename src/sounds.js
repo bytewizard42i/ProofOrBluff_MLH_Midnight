@@ -262,10 +262,39 @@ export function playYouMisCalled() {
   setTimeout(() => noise({ t0: 0, dur: 0.1, gain: 0.4, lowpass: 800 }), 300);
 }
 
-/** Big game-over bells. */
+/**
+ * Triumphant brass-style victory fanfare — a rising major arpeggio that
+ * lands on a sustained, shimmering chord. Layered under the win bells so
+ * the moment feels like a real celebration rather than a single jingle.
+ */
+export function playVictoryFanfare() {
+  if (!ensureCtx()) return;
+  // Quick triplet pickup → held tonic → bright triad on top (C major).
+  const fanfare = [
+    { f: 392.0, t: 0.0,  d: 0.16, g: 0.4 },  // G4 pickup
+    { f: 523.25, t: 0.14, d: 0.16, g: 0.42 }, // C5 pickup
+    { f: 659.25, t: 0.28, d: 0.16, g: 0.42 }, // E5 pickup
+    { f: 783.99, t: 0.42, d: 0.5,  g: 0.5 },  // G5 landing
+  ];
+  fanfare.forEach(({ f, t, d, g }) => {
+    // Bright "brass" = sawtooth + square octave doubling.
+    tone({ type: 'sawtooth', freq: f, t0: t, dur: d, gain: g });
+    tone({ type: 'square',   freq: f * 2, t0: t, dur: d, gain: g * 0.3 });
+  });
+  // Sustained victory chord (C major) blooms in as the run finishes.
+  const chord = [523.25, 659.25, 783.99, 1046.5];
+  chord.forEach((f) => {
+    tone({ type: 'sine',     freq: f, t0: 0.5, dur: 1.4, gain: 0.32 });
+    tone({ type: 'triangle', freq: f, t0: 0.5, dur: 1.4, gain: 0.16 });
+  });
+}
+
+/** Big game-over celebration: fanfare + cascading bells. */
 export function playGameWon() {
+  playVictoryFanfare();
   playWinBells();
-  setTimeout(playWinBells, 450);
+  setTimeout(playWinBells, 500);
+  setTimeout(playWinBells, 1000);
 }
 
 /** Game-over trombone descent. */

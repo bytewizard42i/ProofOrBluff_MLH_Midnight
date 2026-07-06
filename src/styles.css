@@ -1475,8 +1475,72 @@ button.active {
   color: var(--gold);
 }
 
+.result-card.win {
+  border-color: var(--gold);
+  box-shadow:
+    0 0 90px rgba(255, 214, 10, 0.45),
+    inset 0 0 40px rgba(255, 214, 10, 0.12);
+  animation: win-card-pop 0.6s cubic-bezier(0.34, 1.6, 0.5, 1) both;
+}
+
+@keyframes win-card-pop {
+  from { opacity: 0; transform: scale(0.82); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
 .result-card.win h2 {
   color: var(--gold);
+  text-shadow: 0 0 24px rgba(255, 214, 10, 0.65);
+  animation: win-title-glow 1.6s ease-in-out infinite;
+}
+
+@keyframes win-title-glow {
+  0%, 100% { text-shadow: 0 0 18px rgba(255, 214, 10, 0.5); }
+  50%      { text-shadow: 0 0 38px rgba(255, 214, 10, 0.9); }
+}
+
+/* Full-screen confetti canvas sits above the dimmed backdrop but below
+ * the result card so the text stays readable. */
+.confetti-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.result-card {
+  position: relative;
+  z-index: 2;
+}
+
+/* Shimmering pile-of-gold trophy above the "You Win" heading. */
+.gold-treasure {
+  display: flex;
+  justify-content: center;
+  margin: 0 auto 0.5rem;
+  filter: drop-shadow(0 0 22px rgba(255, 214, 10, 0.55));
+  animation: gold-rise 0.7s cubic-bezier(0.2, 0.8, 0.3, 1) both,
+             gold-float 3s ease-in-out 0.7s infinite;
+}
+
+@keyframes gold-rise {
+  from { opacity: 0; transform: translateY(24px) scale(0.7); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes gold-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-7px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .result-card.win,
+  .result-card.win h2,
+  .gold-treasure {
+    animation: none;
+  }
 }
 
 .result-card.lose h2 {
