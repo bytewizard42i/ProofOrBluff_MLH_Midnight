@@ -11,8 +11,25 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 
-const STATE_DIR = path.resolve(process.cwd(), '.pob-state');
+// ESM evaluates imported modules before it runs cli.js's module body. Load the
+// CLI's environment file here as well, before STATE_DIR is calculated, so
+// POB_STATE_NAMESPACE cannot accidentally fall back to "default".
+const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(moduleDirectory, '..', '.env') });
+
+// Local Midnight chains are disposable: starting a fresh Docker stack makes
+// every contract address from the previous chain stale. A namespace gives each
+// TestWired environment its own state without deleting useful historical runs.
+// Only a simple slug is accepted so an environment variable cannot escape the
+// CLI directory through values such as "../../somewhere".
+const stateNamespace = process.env.POB_STATE_NAMESPACE || 'default';
+if (!/^[a-zA-Z0-9_-]+$/.test(stateNamespace)) {
+  throw new Error('POB_STATE_NAMESPACE may contain only letters, numbers, _ and -');
+}
+const STATE_DIR = path.resolve(process.cwd(), '.pob-state', stateNamespace);
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });

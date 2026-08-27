@@ -41,10 +41,14 @@ import {
 } from './game/ai/scripted.js';
 import RealDealHeader from './RealDealHeader.jsx';
 import ProofServerLog from './ProofServerLog.jsx';
+import SponsorRail from './SponsorRail.jsx';
+import TestWiredPanel from './TestWiredPanel.jsx';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
+
+const APP_MODE = import.meta.env.VITE_POB_MODE || 'testwired';
 
 const SUIT_GLYPH = {
   hearts: '♥',
@@ -1233,9 +1237,31 @@ export default function App() {
     }
   }, [state, settings.difficulty, settings.mode, visibleLogCount, totalLogCount, speechBusy, banner]);
 
+  // TestWired is the default realDeal development surface. The original local
+  // AI game remains intact and can still be launched with VITE_POB_MODE=demo.
+  if (APP_MODE === 'testwired') {
+    return (
+      <div className="app">
+        <SponsorRail />
+        <ProofServerLog />
+        <header className="header">
+          <div>
+            <h1>Proof or Bluff <span className="badge">TestWired</span></h1>
+            <div className="tagline">Local chain. Real proofs. Scripted opponent.</div>
+          </div>
+        </header>
+        <TestWiredPanel />
+        <footer className="footer">
+          TestWired build · local Midnight environment · not mainnet
+        </footer>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <RealDealHeader />
+      <SponsorRail />
       {/* Floating, fixed-position panel in the right margin. Out of
           flow, so it never reflows the gameboard. */}
       <ProofServerLog />

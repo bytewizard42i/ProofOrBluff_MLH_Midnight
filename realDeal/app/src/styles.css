@@ -1629,3 +1629,565 @@ button.active {
     flex-direction: column;
   }
 }
+
+/* ────────── Perimeter example sponsors ──────────
+ * SponsorRail is intentionally hidden by default. The game can use nearly the
+ * full viewport at laptop and tablet sizes, so reserving a rail there would
+ * either squeeze the table or cover a control. We only reveal these examples
+ * when the viewport is wide enough to leave a genuine outside perimeter around
+ * the existing 1600px-wide play area.
+ */
+.sponsor-rail {
+  display: none;
+}
+
+@media (min-width: 1880px) {
+  .sponsor-rail {
+    /* The aside spans the viewport only as a positioning layer. It ignores
+     * pointer events so this invisible layer cannot intercept game clicks;
+     * each visible tile opts back in below for its modest hover response. */
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 8;
+    pointer-events: none;
+  }
+
+  .sponsor-tile {
+    position: absolute;
+    top: 50%;
+    width: 116px;
+    margin: 0;
+    padding: 0.8rem 0.7rem 0.9rem;
+    overflow: hidden;
+    text-align: center;
+    color: var(--text);
+    pointer-events: auto;
+
+    /* Layered translucent gradients echo the violet-and-gold casino palette.
+     * There is deliberately no border: an uneven clip-path and feathered glow
+     * make the tile feel more like a small polished token than a rectangle. */
+    background:
+      radial-gradient(circle at 28% 15%, rgba(255, 214, 10, 0.15), transparent 42%),
+      linear-gradient(145deg, rgba(35, 21, 57, 0.84), rgba(6, 32, 18, 0.82));
+    -webkit-backdrop-filter: blur(12px) saturate(1.15);
+    backdrop-filter: blur(12px) saturate(1.15);
+    clip-path: polygon(10% 3%, 88% 0, 100% 13%, 96% 87%, 84% 100%, 12% 96%, 0 82%, 3% 16%);
+    filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.48));
+    transition: transform 180ms ease, filter 180ms ease;
+  }
+
+  /* At this breakpoint the centered game is at most 1600px wide, leaving at
+   * least 140px on each side. A 116px tile placed 12px from the edge therefore
+   * retains a minimum 12px gap from gameplay instead of floating over it. */
+  .sponsor-tile--left {
+    left: 12px;
+    transform: translateY(-50%) rotate(-1.5deg);
+  }
+
+  .sponsor-tile--right {
+    right: 12px;
+    transform: translateY(-50%) rotate(1.5deg);
+  }
+
+  .sponsor-tile--left:hover {
+    transform: translateY(calc(-50% - 3px)) rotate(-0.5deg) scale(1.02);
+    filter: drop-shadow(0 15px 23px rgba(157, 78, 221, 0.28));
+  }
+
+  .sponsor-tile--right:hover {
+    transform: translateY(calc(-50% - 3px)) rotate(0.5deg) scale(1.02);
+    filter: drop-shadow(0 15px 23px rgba(255, 214, 10, 0.2));
+  }
+
+  .sponsor-tile__image {
+    display: block;
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 0.55rem;
+    object-fit: contain;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+  }
+
+  .sponsor-tile__disclosure {
+    margin: 0 0 0.28rem;
+    color: var(--gold);
+    font-size: 0.56rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1.25;
+    text-transform: uppercase;
+  }
+
+  .sponsor-tile__name {
+    margin: 0;
+    color: var(--text);
+    font-size: 0.94rem;
+    line-height: 1.25;
+  }
+
+  .sponsor-tile__copy {
+    margin: 0.36rem 0 0;
+    color: var(--text-dim);
+    font-size: 0.66rem;
+    line-height: 1.4;
+  }
+}
+
+/* On ordinary laptops the side perimeter is too narrow, so the same sponsor
+ * inventory becomes a slim top-edge strip in normal document flow. It takes a
+ * little vertical room but never floats over cards, buttons, or the game log. */
+@media (max-width: 1879px) {
+  .sponsor-rail {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    padding: 0.45rem 1rem 0;
+  }
+
+  .sponsor-tile {
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    align-items: center;
+    width: min(260px, calc(50vw - 1.5rem));
+    margin: 0;
+    padding: 0.4rem 0.65rem;
+    color: var(--text);
+    background: linear-gradient(105deg, rgba(35, 21, 57, 0.58), rgba(6, 32, 18, 0.52));
+    clip-path: polygon(4% 4%, 96% 0, 100% 22%, 97% 91%, 7% 100%, 0 78%, 2% 16%);
+    filter: drop-shadow(0 7px 12px rgba(0, 0, 0, 0.28));
+  }
+
+  .sponsor-tile__image {
+    grid-row: 1 / 4;
+    width: 48px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: 45% 55% 48% 52%;
+  }
+
+  .sponsor-tile__disclosure,
+  .sponsor-tile__name,
+  .sponsor-tile__copy {
+    margin: 0 0 0 0.55rem;
+    text-align: left;
+  }
+
+  .sponsor-tile__disclosure {
+    color: var(--gold);
+    font-size: 0.52rem;
+    font-weight: 700;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  .sponsor-tile__name {
+    font-size: 0.85rem;
+  }
+
+  .sponsor-tile__copy {
+    color: var(--text-dim);
+    font-size: 0.62rem;
+    line-height: 1.25;
+  }
+}
+
+@media (max-width: 520px) {
+  .sponsor-rail {
+    gap: 0.45rem;
+    padding-inline: 0.45rem;
+  }
+
+  .sponsor-tile {
+    grid-template-columns: 38px minmax(0, 1fr);
+    width: calc(50vw - 0.7rem);
+    padding: 0.32rem 0.4rem;
+  }
+
+  .sponsor-tile__image {
+    width: 34px;
+    height: 34px;
+  }
+
+  .sponsor-tile__copy {
+    display: none;
+  }
+}
+
+@media (min-width: 1880px) and (prefers-reduced-motion: reduce) {
+  /* Keep the static organic tilt, but remove both interpolation and movement
+   * for visitors who request reduced motion at the operating-system level. */
+  .sponsor-tile {
+    transition: none;
+  }
+
+  .sponsor-tile--left:hover {
+    transform: translateY(-50%) rotate(-1.5deg);
+  }
+
+  .sponsor-tile--right:hover {
+    transform: translateY(-50%) rotate(1.5deg);
+  }
+}
+
+/* ────────── TestWired local-chain control panel ──────────
+ * This surface is intentionally denser and more diagnostic than the full felt
+ * table. A cool cyan edge distinguishes local wiring work from normal play,
+ * while scoped selectors prevent the panel from changing existing screens.
+ */
+.testwired-panel {
+  --testwired-accent: #55d9e8;
+  --testwired-accent-dim: #278e9b;
+  width: min(1180px, calc(100% - 2rem));
+  margin: 1rem auto;
+  padding: 1rem;
+  color: var(--text);
+  background:
+    linear-gradient(135deg, rgba(18, 44, 55, 0.94), rgba(14, 12, 30, 0.96));
+  border: 1px solid rgba(85, 217, 232, 0.48);
+  border-left: 4px solid var(--testwired-accent);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  font-size: 0.86rem;
+}
+
+.testwired-panel h2,
+.testwired-panel h3,
+.testwired-panel p {
+  margin-top: 0;
+}
+
+.testwired-panel h2 {
+  margin-bottom: 0.35rem;
+  color: var(--testwired-accent);
+  font-size: clamp(1.25rem, 2.5vw, 1.75rem);
+}
+
+.testwired-panel h3 {
+  margin-bottom: 0.45rem;
+  color: #bceff4;
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.testwired-panel__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid rgba(85, 217, 232, 0.2);
+}
+
+.testwired-panel__eyebrow {
+  margin-bottom: 0.2rem;
+  color: #8fb7bc;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.testwired-panel__intro {
+  max-width: 720px;
+  margin-bottom: 0;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.testwired-vitals,
+.testwired-status-grid {
+  margin: 0;
+}
+
+.testwired-vitals {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 0.45rem;
+  align-self: start;
+}
+
+.testwired-vitals div,
+.testwired-status-grid div {
+  padding: 0.45rem 0.6rem;
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid rgba(85, 217, 232, 0.16);
+  border-radius: 6px;
+}
+
+.testwired-vitals dt,
+.testwired-status-grid dt {
+  margin-bottom: 0.14rem;
+  color: #8fb7bc;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.testwired-vitals dd,
+.testwired-status-grid dd {
+  margin: 0;
+  font-weight: 650;
+}
+
+.testwired-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.65rem;
+  padding: 0.8rem 0;
+}
+
+.testwired-toolbar label {
+  display: grid;
+  gap: 0.25rem;
+  color: #bceff4;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.testwired-toolbar input,
+.testwired-toolbar select {
+  min-height: 35px;
+  padding: 0.38rem 0.55rem;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(85, 217, 232, 0.42);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.testwired-toolbar input {
+  width: 92px;
+}
+
+.testwired-toolbar input:focus,
+.testwired-toolbar select:focus,
+.testwired-panel button:focus-visible {
+  outline: 2px solid var(--testwired-accent);
+  outline-offset: 2px;
+}
+
+.testwired-wallet {
+  display: flex;
+  flex: 1 1 360px;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.8rem;
+  align-items: center;
+  min-height: 35px;
+  padding: 0.45rem 0.6rem;
+  color: var(--text-dim);
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
+.testwired-wallet strong {
+  color: #bceff4;
+}
+
+.testwired-notice,
+.testwired-proof-status,
+.testwired-error {
+  margin-bottom: 0.75rem;
+  padding: 0.62rem 0.75rem;
+  border-radius: 6px;
+  line-height: 1.45;
+}
+
+.testwired-notice {
+  color: #ffe9a3;
+  background: rgba(255, 214, 10, 0.09);
+  border-left: 3px solid var(--gold);
+}
+
+.testwired-proof-status {
+  color: #d8f8fb;
+  background: rgba(85, 217, 232, 0.1);
+  border-left: 3px solid var(--testwired-accent);
+}
+
+.testwired-error {
+  color: #ffc2c2;
+  background: rgba(214, 40, 40, 0.14);
+  border-left: 3px solid #ff7777;
+}
+
+.testwired-match {
+  padding: 0.8rem;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(85, 217, 232, 0.2);
+  border-radius: 8px;
+}
+
+.testwired-match__heading,
+.testwired-hand-area__heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.testwired-identifiers {
+  margin-bottom: 0.6rem;
+  color: var(--text-dim);
+}
+
+.testwired-identifiers code {
+  color: var(--testwired-accent);
+}
+
+.testwired-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 0.45rem;
+}
+
+.testwired-dialogue {
+  margin: 0.7rem 0 0;
+  padding: 0.55rem 0.7rem;
+  color: #d8d4e7;
+  background: rgba(157, 78, 221, 0.1);
+  border-left: 3px solid var(--violet);
+  font-style: italic;
+}
+
+.testwired-hand-area {
+  margin-top: 0.75rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid rgba(85, 217, 232, 0.16);
+}
+
+.testwired-hand-area__heading span,
+.testwired-muted {
+  color: var(--text-dim);
+}
+
+.testwired-hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+}
+
+.testwired-card {
+  display: grid;
+  width: 78px;
+  min-height: 68px;
+  padding: 0.42rem;
+  place-content: center;
+  gap: 0.18rem;
+  color: #172226;
+  background: #f0f4ed;
+  border: 2px solid transparent;
+  border-radius: 7px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.28);
+  text-align: center;
+  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.testwired-card strong {
+  font-family: 'Cinzel', serif;
+  font-size: 1.25rem;
+}
+
+.testwired-card span {
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.testwired-card:hover:not(:disabled) {
+  background: #f0f4ed;
+  border-color: var(--testwired-accent);
+  transform: translateY(-2px);
+}
+
+.testwired-card--selected,
+.testwired-card--selected:hover:not(:disabled) {
+  background: #dffbfe;
+  border-color: var(--testwired-accent-dim);
+  box-shadow: 0 0 0 2px var(--testwired-accent), 0 5px 14px rgba(85, 217, 232, 0.3);
+  transform: translateY(-3px);
+}
+
+.testwired-card:disabled {
+  opacity: 0.58;
+}
+
+.testwired-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.testwired-log {
+  margin-top: 0.8rem;
+  padding: 0.7rem 0.8rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 7px;
+}
+
+.testwired-log ol {
+  max-height: 150px;
+  margin: 0;
+  padding-left: 1.35rem;
+  overflow-y: auto;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.testwired-log li::marker {
+  color: var(--testwired-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 820px) {
+  .testwired-panel__header {
+    grid-template-columns: 1fr;
+  }
+
+  .testwired-vitals,
+  .testwired-status-grid {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .testwired-panel {
+    width: calc(100% - 1rem);
+    margin: 0.5rem auto;
+    padding: 0.75rem;
+  }
+
+  .testwired-vitals,
+  .testwired-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .testwired-toolbar > button,
+  .testwired-actions > button {
+    flex: 1 1 100%;
+  }
+
+  .testwired-card {
+    width: calc(25% - 0.35rem);
+    min-width: 62px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .testwired-card {
+    transition: none;
+  }
+
+  .testwired-card:hover:not(:disabled),
+  .testwired-card--selected,
+  .testwired-card--selected:hover:not(:disabled) {
+    transform: none;
+  }
+}

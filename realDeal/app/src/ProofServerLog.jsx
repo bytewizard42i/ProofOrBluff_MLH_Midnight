@@ -25,8 +25,13 @@ const ENDPOINT      = '/api/proof-server-logs';
 const POLL_INTERVAL = 2000;
 const TAIL_DEFAULT  = 40;
 
-const STORAGE_OPEN  = 'pob:realdeal:proofServerLog:open';
-const STORAGE_GEO   = 'pob:realdeal:proofServerLog:geometry';
+const TESTWIRED_MODE = (import.meta.env.VITE_POB_MODE || 'testwired') === 'testwired';
+const STORAGE_OPEN  = TESTWIRED_MODE
+  ? 'pob:testwired:proofServerLog:open'
+  : 'pob:realdeal:proofServerLog:open';
+const STORAGE_GEO   = TESTWIRED_MODE
+  ? 'pob:testwired:proofServerLog:geometry'
+  : 'pob:realdeal:proofServerLog:geometry';
 
 const MIN_W = 280;
 const MIN_H = 200;
@@ -106,8 +111,12 @@ function classifyLine(line) {
 
 export default function ProofServerLog() {
   const [open, setOpen] = useState(() => {
-    try { return window.localStorage.getItem(STORAGE_OPEN) !== '0'; }
-    catch { return true; }
+    try {
+      const saved = window.localStorage.getItem(STORAGE_OPEN);
+      return saved === null ? !TESTWIRED_MODE : saved !== '0';
+    } catch {
+      return !TESTWIRED_MODE;
+    }
   });
   const [geom, setGeom] = useState(loadGeometry);
   const [lines, setLines] = useState([]);

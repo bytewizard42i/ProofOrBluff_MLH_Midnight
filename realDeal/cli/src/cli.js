@@ -109,7 +109,7 @@ function activeMatch(flags) {
 
 // --- session boot -----------------------------------------------------------
 
-async function openSession(flags) {
+export async function openSession(flags) {
   const player = flags.player || 'genesis';
   const networkId = flags.network || process.env.POB_NETWORK_ID || 'undeployed';
   const seed = envSeed(player);
@@ -389,4 +389,9 @@ async function main() {
   }
 }
 
-main();
+// Importers such as the localhost bot need the wallet/session factory without
+// accidentally executing a CLI command. Comparing resolved entrypoint paths keeps
+// direct `node src/cli.js ...` and the installed `pob-cli` bin behavior unchanged.
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  main();
+}
