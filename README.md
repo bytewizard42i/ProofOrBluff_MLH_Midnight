@@ -370,3 +370,10 @@ All Rights Reserved. This is a private concept under active development.
 ---
 
 *Concept developed collaboratively with Alice (ChatGPT) and Penny (Windsurf Cascade). Original brainstorm: March 31, 2026. Game design formalized: April 3, 2026. Port: 3015.*
+
+
+## Shared sign-in options
+
+See [the shared sign-in module pointer](SIGN_IN_SELECTIONS.md) for reusable choice
+configuration and this repository's integration boundaries. This documentation
+pointer does not activate authentication.
