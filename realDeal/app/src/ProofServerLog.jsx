@@ -109,13 +109,21 @@ function classifyLine(line) {
   return { key: text, raw: text, ts, kind, body, timing };
 }
 
+// Breakpoint below which the panel defaults to collapsed so it doesn't
+// obscure mobile screens. Matches the common sm: breakpoint (640 px).
+const MOBILE_BREAKPOINT = 640;
+
 export default function ProofServerLog() {
   const [open, setOpen] = useState(() => {
+    // On narrow (mobile) viewports, collapse by default so the panel
+    // doesn't block the UI; on wider screens default follows TESTWIRED_MODE.
+    // A saved preference always wins.
+    const isWide = typeof window === 'undefined' || window.innerWidth >= MOBILE_BREAKPOINT;
     try {
       const saved = window.localStorage.getItem(STORAGE_OPEN);
-      return saved === null ? !TESTWIRED_MODE : saved !== '0';
+      return saved === null ? isWide && !TESTWIRED_MODE : saved !== '0';
     } catch {
-      return !TESTWIRED_MODE;
+      return isWide && !TESTWIRED_MODE;
     }
   });
   const [geom, setGeom] = useState(loadGeometry);
