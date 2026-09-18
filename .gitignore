@@ -1,6 +1,7 @@
 node_modules
 dist/
 build/
+midnight-local-dev/
 # .env is committed for realDeal/cli/ (public local-dev test seeds —
 # see realDeal/docs/LOCAL_DEV_GUIDE.md). For all other paths .env
 # stays ignored.
